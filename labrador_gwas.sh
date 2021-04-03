@@ -24,7 +24,7 @@ rm labrador_download
 srun --pty --account def-nricker --mem=4G -N 1 -n 4 -t 0-01:30 /bin/bash
 
 # modules to load on graham
-module load nixpkgs/16.09 gcc/7.3.0 r/4.0.3 plink/1.9b_4.1-x86_64 
+module load nixpkgs/16.09 gcc/7.3.0 r/4.0.2 plink/1.9b_4.1-x86_64 
 
 ### Filtering done in Baker et al.
 
@@ -37,8 +37,12 @@ module load nixpkgs/16.09 gcc/7.3.0 r/4.0.3 plink/1.9b_4.1-x86_64
 # excluded because of deviation from Hardy-Weinberg equilibrium at P<1E-07.
 # 118,992 SNPs were used for further analysis."
 
+#################################################################
+## PART 1 - QC & FILTERING SNPS AND SAMPLES
+#################################################################
 
-## 1: Filter by genotype missingness ####################################
+
+## 1: Filter by genotype missingness ############################
 
 # check missingness with --missing
 # because we have non-human data, we always specify the organism --dog
@@ -58,7 +62,7 @@ plink --bfile cr237_dryad_2 --mind 0.05 --dog --make-bed --out cr237_dryad_3
 # 7468 variants removed due to missing genotype data (--geno).
 # 0 dogs removed due to missing genotype data (--mind).
 
-## 2: Sex discrepency  ###############################################
+## 2: Sex discrepency  ##########################################
 
 # ignore snps in the canine pseudoautosomal region of X-chromosome
 plink --bfile cr237_dryad_3 --dog --split-x 6630000 126883977 \
@@ -97,7 +101,7 @@ grep "PROBLEM" plink.sexcheck
 # but if we encounter something weird, it might be worth looking into deeper.
 rm plink.sex_check cr237_dryad_3b_imputed cr237_dryad_3b
 
-#### 3: Autosomal SNPs only   ###############################################
+#### 3: Autosomal SNPs only   ##################################
 
 # Filter .bed file to autosomal SNPs only and delete SNPs with low MAF.
 # For this GWAS we aren't interested in sex-linked traits.
@@ -111,7 +115,7 @@ plink --bfile cr237_dryad_3 --extract snp_1_38.txt --dog --make-bed \
 # 160929 variants and 237 dogs pass filters and QC.
 
 
-#### 4: MAF   ################################################################
+#### 4: MAF   ###################################################
 
 # Generally, we want a threshold of MAF > 0.05, 
 # or possibly lower if our sample is very large.
@@ -261,7 +265,7 @@ less plink.imiss
 # plink --bfile cr237_dryad_8 --remove 0.2_low_call_rate_pihat.txt --make-bed --out HapMap_3_r3_12
 
 
-# The end of filtering steps
+# The end of QC filtering steps
 
 
 # download all the plots and data of interest 
@@ -271,7 +275,28 @@ rm *_dryad_3b*
 rm *_hwe_filter*
 
 
-# Part 2:
 
+
+#################################################################
+# PART 2: DEALING WITH POP STRATIFICATION
+#################################################################
+
+## If we have resources to place our study subjects within their 
+## 'ethnic' groups (eg. 1000 genomes SNPs data for human ethnicity),
+## then we can 'anchor' our samples with this data to find out where
+## the samples lie in relation to these groups. This uses MDS to
+## show distance between individuals, such that we can identify any
+## individuals that are outliers from their groups. Because we want 
+## to do our study on a homogenous group, we remove any samples 
+## that deviate from the group based on a selected threshold.
+## Since we are dealing with dogs, (and there is no 1000 dog genomes)
+## we'll just perform MDS to check for any outliers in the labrador
+## retrievers.
+
+
+## For more details, see
+## https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6001694/, which
+## provides a worked example with human SNP data anchored to the 
+## 1000 genomes data.
 
 
