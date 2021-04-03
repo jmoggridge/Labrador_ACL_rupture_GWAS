@@ -25,231 +25,155 @@ srun --pty --account def-nricker --mem=4G -N 1 -n 4 -t 0-01:30 /bin/bash
 # modules to load on graham
 module load nixpkgs/16.09 gcc/7.3.0 r/4.0.2 plink/1.9b_4.1-x86_64 
 
+### Filtering done in Baker et al.
+
+# "Genome-wide SNP genotyping was performed in 98 cases and 139 controls
+# using the Illumina CanineHD BeadChip, which genotypes 173,662 SNPs evenly
+# spaced across the genome. Data underwent quality control filtering using
+# PLINK [32]. All samples had a genotyping call rate of ≥95%. 49,859 SNPs
+# were excluded because minor allele frequency (MAF) was ≤0.05 and 7,468 
+# SNPs were excluded because of a low genotyping rate (≤95%). 153 SNPs were
+# excluded because of deviation from Hardy-Weinberg equilibrium at P<1E-07.
+# 118,992 SNPs were used for further analysis."
+
+
 ## 1: Filter by genotype missingness ####################################
 
 # check missingness with --missing
 # because we have non-human data, we always specify the organism --dog
 plink --bfile cr237_dryad --missing --dog 
+# other you'll get an error like this:
+# "Error: Invalid chromosome code '27' on line 128594 of .bim file."
 
 # files .imiss .lmiss show the proportion of missing data per loci and indiv.
 # plot the missingness results.
 Rscript --no-save ./R/hist_miss.R
 
-# Delete SNPs with missingness >0.02.
-plink --bfile cr237_dryad --geno 0.02 --make-bed --out cr237_dryad_2
+# Delete SNPs and individuals with missingness >0.05.
+plink --bfile cr237_dryad --geno 0.05 --dog --make-bed --out cr237_dryad_2
+plink --bfile cr237_dryad_2 --mind 0.05 --dog --make-bed --out cr237_dryad_3
 
-# Delete individuals with missingness >0.02.
-plink --bfile cr237_dryad_2 --mind 0.02 --make-bed --out cr237_dryad_3
+# you can see in the plink output how many variants were dropped:
+# 7468 variants removed due to missing genotype data (--geno).
+# 0 dogs removed due to missing genotype data (--mind).
 
- # Total genotyping rate is 0.997899.
- # 1430443 variants and 165 people pass filters and QC.
- # Among remaining phenotypes, 56 are cases and 56 are controls.  
- # (53 phenotypes are missing.) --> # (53 phenotypes are missing.)
+## 2: Sex discrepency  ###############################################
 
-
-We dropped 21,579 of 1,457,897 variants due to missing genotype data (--geno) and none from the --mind filter. Note that we dropped some of the data we were getting warnings about:
-
- > Warning: 179 het. haploid genotypes present (see HapMap_3_r3_5.hh ); many
- > commands treat these as missing.
-
-### Step2: Sex discrepency 
-
-Filtering based on F value which is related to X chromosome homozygosity / inbreeding, and informs us if any individuals are sexed incorrectly or ambiguously. Male > 0.8, F < 0.2 to pass. Uses plink `--check-sex` flag
-
-<!-- # chromosome inbreeding (homozygosity) estimate
-<!-- # Check for sex discrepancy. -->
-<!-- # Subjects who were a priori determined as females must have a  -->
-<!-- # F value of <0.2, and subjects who were a priori determined as -->
-<!-- # males must have a F value >0.8. This F value is based on the X -->
-<!-- # chromosome inbreeding (homozygosity) estimate. -->
-<!-- # Subjects who do not fulfil these requirements are flagged "PROBLEM" -->
-<!-- # by PLINK. -->
-
-```{r, engine='bash'}
-plink --bfile HapMap_3_r3_3 --check-sex 
-grep "PROBLEM" plink.sexcheck
-```
-
- we see that NA10854 (female) is flagged 'Problem' because has F=0.99
- pedsex is 2 but snpsex is 1
- >1349   NA10854     2     1     PROBLEM   0.99
-
-This is flagged for removal later.
-
-```{r, engine='bash'}
-# Generate plots to visualize the sex-check results.
-Rscript gender_check.R
-# > Gender_check.pdf Men_check.pdf Women_check.pdf
-# ```
-# gender <- read.table("plink.sexcheck", header=T,as.is=T)
-# 
-# pdf("Gender_check.pdf")
-# hist(gender[,6], main = "Gender", xlab = "F")
-# dev.off()
-# 
-# pdf("Men_check.pdf")
-# male = subset(gender, gender$PEDSEX==1)
-# hist(male[, 6], main = "Men", xlab = "F")
-# dev.off()
-# 
-# pdf("Women_check.pdf")
-# female = subset(gender, gender$PEDSEX == 2)
-# hist(female[, 6] ,main = "Women", xlab = "F")
-# dev.off()
-# ```
-```
-
-
-<!-- # These checks indicate that there is one woman with a  -->
-<!-- # sex discrepancy, F value of 0.99. (When using other datasets  -->
-<!-- # often a few discrepancies will be found).  -->
-
-<!-- # The following two scripts can be used to deal with  -->
-<!-- # individuals with a sex discrepancy. -->
-<!-- # Note, please use one of the two options below to  -->
-<!-- # generate the bfile hapmap_r23a_6, this file we will use  -->
-<!-- # in the next step of this tutorial. -->
-
-```{r, engine='bash'}
-# 1) Delete individuals with sex discrepancy.
-# This command generates a list of individuals with the status ?PROBLEM?.
+# Filtering based on F value which is related to X chromosome homozygosity / inbreeding, 
+# and informs us if any individuals are sexed incorrectly or ambiguously.
+# Male > 0.8, F < 0.2 to pass. Uses plink `--check-sex` flag
+plink --bfile cr237_dryad_3 --check-sex --dog
 grep "PROBLEM" plink.sexcheck| awk '{print$1,$2}'> sex_discrepancy.txt
-# This command removes the list of individuals with the status ?PROBLEM?.
-plink --bfile HapMap_3_r3_3 --remove sex_discrepancy.txt --make-bed --out HapMap_3_r3_4 
+wc -l sex_discrepancy.txt 
+cat sex_discrepency.text
 
-# 2) OR  - impute-sex.
-# This imputes the sex based on the genotype information into 
-# your data set.
-plink --bfile HapMap_3_r3_3 --impute-sex --make-bed --out HapMap_3_r3_4
-```
+# Generate plots to visualize the sex-check results.
+Rscript ./R/gender_check.R
 
-<!-- # > 165 people (80 males, 85 females) loaded from .fam. -->
-<!-- # > 112 phenotype values loaded from .fam. -->
-<!-- # > --remove: 164 people remaining. -->
-<!--  or -->
+# We see a number of discrepencies, but the authors didn't filter these out
+# according to their methods section.
+# We could impute them from genotypes, see that the have all been changed
+plink --bfile cr237_dryad_3 --impute-sex --dog --make-bed --out cr237_dryad_4
+plink --bfile cr237_dryad_4 --check-sex --dog
+grep "PROBLEM" plink.sexcheck
 
-<!-- # > --impute-sex: 23424 Xchr and 0 Ychr variant(s) scanned, all sexes imputed. -->
+## This command removes individuals with ?PROBLEM?.status
+# plink --bfile cr237_dryad_3 --remove sex_discrepancy.txt --dog --make-bed --out cr237_dryad_4 
 
-### Step 3 
 
-Filter .bed file to autosomal SNPs only and delete SNPs with low MAF.
-For this GWAS we aren't interested in sex-linked traits.
-Generally, we want a threshold of MAF > 0.05, or possibly lower if our sample is large.
+#### 3: Autosomal SNPs only   ###############################################
 
-```{r, engine='bash'}
-# extract all snps that are on chromosomes 1-22, not 25 (mitochondrial)
-awk '{ if ($1 >= 1 && $1 <= 22) print $2 }' HapMap_3_r3_6.bim > snp_1_22.txt
+# Filter .bed file to autosomal SNPs only and delete SNPs with low MAF.
+# For this GWAS we aren't interested in sex-linked traits.
 
-# Select autosomal SNPs only (i.e., from chromosomes 1 to 22).
-plink --bfile HapMap_3_r3_4 --extract snp_1_22.txt --make-bed --out HapMap_3_r3_5
+# extract snps that are on chromosomes 1-38 (autosomal only)
+awk '{ if ($1 >= 1 && $1 <= 38) print $2 }' cr237_dryad_4.bim > snp_1_38.txt
+head snp_1_38.txt 
+plink --bfile cr237_dryad_4 --extract snp_1_38.txt --dog --make-bed --out cr237_dryad_5
 
+# 160929 variants and 237 dogs pass filters and QC.
+
+
+#### 4: MAF   ################################################################
+
+# Generally, we want a threshold of MAF > 0.05, 
+# or possibly lower if our sample is large.
 # Generate a plot of the MAF distribution. (MAF_distribution.pdf)
-plink --bfile HapMap_3_r3_5 --freq --out MAF_check
-Rscript --no-save MAF_check.R
+plink --bfile cr237_dryad_5 --freq --out MAF_check
+Rscript --no-save ./R/MAF_check.R
 
-# Remove SNPs with a low MAF frequency. (5%)
-plink --bfile HapMap_3_r3_5 --maf 0.05 --make-bed --out HapMap_3_r3_6
-```
-<!-- # More that a million (1,073,226) SNPs are left -->
-<!-- # A conventional MAF threshold for a regular GWAS is between  -->
-<!-- # 0.01 or 0.05, depending on sample size. -->
-
-<!-- # > 325318 variants removed due to minor allele threshold(s) -->
+# Remove SNPs with MAF frequency <5%
+plink --bfile cr237_dryad_5 --maf 0.05 --dog --make-bed --out cr237_dryad_6
+# 45090 variants removed due to minor allele threshold(s)
 
 
-### Step 4 ###
+#### 5: Hardy-Weinberg Equilibrium ############################################
 
-Delete SNPs which are not in Hardy-Weinberg equilibrium (HWE) based on some threshold for p-value. Threshold is higher for controls than cases, so we do two steps, where 2nd has an added flag.
+# Delete SNPs which are far from Hardy-Weinberg equilibrium (HWE) based on 
+# some threshold for p-value (10e-7 in Baker et al.).
+# The --hwe default in plink only filters the controls, so we use two steps, 
+# first on controls, then cases. The thresholds can be looser on cases (more significant).
 
-Plot the distribution of HWE p-values for SNPs. (plink.hwe output)
-
-<!-- # By default the --hwe option in plink only filters for controls. Therefore, we use two steps, first we use a stringent HWE threshold for controls, followed by a less stringent threshold for the case data. -->
-<!--  threshold of p<1-e6 for controls -->
-<!--  threshold of p<1-e10 for cases -->
-
-<!-- # Selecting SNPs with HWE p-value below 0.00001, required for one -->
-<!-- # of the two plot generated by the next Rscript, allows to zoom in -->
-<!-- # on strongly deviating SNPs. -->
-
-<!-- # The HWE threshold for the cases filters out only SNPs which  -->
-<!-- # deviate extremely from HWE.  -->
-<!-- # This second HWE step only focusses on cases because in the -->
-<!-- # controls all SNPs with a HWE p-value < hwe 1e-6 were already -->
-<!-- # removed -->
-<!-- # Theoretical background for this step is given in our accompanying article: -->
-<!-- # https://www.ncbi.nlm.nih.gov/pubmed/29484742 . -->
-
-```{r, engine='bash'}
 # compute HWE
-plink --bfile HapMap_3_r3_6 --hardy
-# output: plink.hwe
+plink --bfile cr237_dryad_6 --hardy --dog
+head plink.hwe
 
 # filter to significant HWE violations only for plot
 awk '{ if ($9 <0.00001) print $0 }' plink.hwe > plinkzoomhwe.hwe
-Rscript --no-save hwe.R
+head plinkzoomhwe.hwe
 
-# -hwe filters only Controls (default) with HWE p-value > 1e-6
-plink --bfile HapMap_3_r3_6 --hwe 1e-6 --make-bed --out HapMap_hwe_filter_step1
-# to filter Case SNPs, we add hwe-all flag
-plink --bfile HapMap_hwe_filter_step1 --hwe 1e-10 --hwe-all --make-bed --out HapMap_3_r3_7
-```
-<!-- --hwe: 0 variants removed due to Hardy-Weinberg exact test. -->
-<!-- --hwe: 10 variants removed due to Hardy-Weinberg exact test. -->
+# Plot the distribution of HWE p-values across SNPs from plink.hwe output
+Rscript --no-save ./R/hwe.R
 
+# --hwe filter for controls with HWE p-value > 1e-7
+plink --bfile cr237_dryad_6 --hwe 1e-7 --dog --make-bed --out cr237_hwe_filter_step1
+# --hwe: 43 variants removed due to Hardy-Weinberg exact test.
 
-<!-- ```{r, engine='bash'} -->
-<!-- # ``` -->
-<!-- # hwe<-read.table (file="plink.hwe", header=TRUE) -->
-<!-- # pdf("histhwe.pdf") -->
-<!-- # hist(hwe[,9],main="Histogram HWE") -->
-<!-- # dev.off() -->
-<!-- #  -->
-<!-- # hwe_zoom<-read.table (file="plinkzoomhwe.hwe", header=TRUE) -->
-<!-- # pdf("histhwe_below_theshold.pdf") -->
-<!-- # hist(hwe_zoom[,9],main="Histogram HWE: strongly deviating SNPs only") -->
-<!-- # dev.off() -->
-<!-- # ``` -->
-<!-- ``` -->
+# Do --hwe 1e-7 and --hwe-all to filter the case SNPs
+plink --bfile cr237_hwe_filter_step1 --hwe 1e-7 --dog --hwe-all --make-bed --out cr237_dryad_7
+# --hwe: 93 variants removed due to Hardy-Weinberg exact test.
+# 115703 variants and 237 dogs pass filters and QC.
 
 
-### Step 5: Heterozygosity filter.
+### 5: Heterozygosity filter / 'Pruning' SNPs ################################
 
-Prune SNPs to only consider uncorrelated loci (requires an input file of LD regions to exclude).
-
-<!-- # Generate a plot of the distribution of the heterozygosity rate of your subjects. -->
-<!-- # And remove individuals with a heterozygosity rate -->
-<!-- # deviating more than 3 sd from the mean. -->
-<!-- # Checks for heterozygosity are performed on a set of SNPs -->
-<!-- # which are not highly correlated. -->
-<!-- # Therefore, to generate a list of non-(highly)correlated SNPs, -->
-<!-- # we exclude high inversion regions (inversion.txt [High LD regions]) -->
-<!-- # and prune the SNPs using the command --indep-pairwise?. -->
-<!-- # The parameters `50 5 0.2` stand respectively for:  -->
-<!-- #  1 the window size, -->
-<!-- #  2 the number of SNPs to shift the window at each step,  -->
-<!-- #  3 and the multiple # correlation coefficient for a SNP being -->
-<!-- #    regressed on all other SNPs simultaneously. -->
-
-'Pruning' SNPs ...
-
-Filtering individuals with heterozygosity that deviates from the mean.
+# Far more heterozygous calls than expected? Probably systemic calling error.
+# Fewer heterozygotes than expected? Could be population stratification.
+# (Migration, natural selection, and/or non-random mating violations).
+# GWAS methods often assume HW-equilibrium.
 
 
-```{r, engine='bash', eval = FALSE}
-cat inversion.txt
-# Note, don't delete the file indepSNP.prune.in, we will use this file in later steps of the tutorial.
-plink --bfile HapMap_3_r3_7 --exclude inversion.txt --range --indep-pairwise 50 5 0.2 --out indepSNP
-# gives .in files to use for --extract. (and .out to check removed loci)
-plink --bfile HapMap_3_r3_7 --extract indepSNP.prune.in --het --out R_check
-# This file contains your pruned data set.
+# Prune SNPs to only consider uncorrelated loci (requires an input file of LD
+# regions to exclude).
+# The --indep-pairwise parameters `50 5 0.2` stand respectively for:  
+#  1 the window size, 
+#  2 the number of SNPs to shift the window at each step,  
+#  3 and the multiple correlation coefficient for a SNP being 
+#    regressed on all other SNPs simultaneously. 
+
+
+# Filtering individuals with heterozygosity that deviates from the mean.
+plink --bfile cr237_dryad_7 --dog --indep-pairwise 50 5 0.2 --out indepSNP
+plink --bfile cr237_dryad_7 --dog --extract indepSNP.prune.in --het --out R_check
+head R_check.het
 
 # Plot of the heterozygosity rate distribution
-Rscript --no-save check_heterozygosity_rate.R
+Rscript --no-save ./R/check_heterozygosity_rate.R
 
-# The following code generates a list of individuals who deviate more than 3 standard deviations from the heterozygosity rate mean.
-# For data manipulation we recommend using UNIX. However, when performing statistical calculations R might be more convenient, hence the use of the Rscript for this step:
-Rscript --no-save heterozygosity_outliers_list.R
-# output: fail-het-qc.txt .
+# And remove individuals with a heterozygosity rate 
+# deviating more than 3 sd from the mean. 
+Rscript --no-save ./R/heterozygosity_outliers_list.R
+cat fail-het-qc.txt
+
+# Checks for heterozygosity are performed on a set of SNPs 
+# which are not highly correlated. 
+
+# Therefore, to generate a list of non-(highly)correlated SNPs, 
+# we exclude high inversion regions (inversion.txt [High LD regions]) 
+# and prune the SNPs using the command --indep-pairwise?. 
+
+
+
 
 # When using our example data/the HapMap data this list contains 2 individuals (i.e., two individuals have a heterozygosity rate deviating more than 3 SD's from the mean).
 # Adapt this file to make it compatible for PLINK, by removing all quotation marks from the file and selecting only the first two columns.
@@ -259,7 +183,7 @@ cat het_fail_ind.txt
 # --remove: heterozygosity rate outliers from index file.
 plink --bfile HapMap_3_r3_9 --remove het_fail_ind.txt --make-bed --out HapMap_3_r3_10
 
-```
+
 
 
 ### step 6
@@ -310,66 +234,13 @@ plink --bfile HapMap_3_r3_11 --missing
 # < !-- vi 0.2_low_call_rate_pihat.txt --> vi blows
 nano 0.2_low_call_rate_pihat.txt 
 # put in this line: 13291  NA07045
-```
 
-In case of multiple 'related' pairs, the list generated above can be extended using the same method as for our lone 'related' pair.
 
-```{r, engine='bash', eval = FALSE}
+# In case of multiple 'related' pairs, the list generated above can be extended using the same method as for our lone 'related' pair.
 # Delete the individuals with the lowest call rate in 'related' pairs with a pihat > 0.2 
 plink --bfile HapMap_3_r3_11 --remove 0.2_low_call_rate_pihat.txt --make-bed --out HapMap_3_r3_12
-```
 
-The end of filtering steps
+# The end of filtering steps
 
 
 # Part 2:
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# My dataset: Poplar GWAS for biofuel characteristics
-
-Full dataset contains 882 Poplar trees, 
-
-### Using Globus to transfer poplar data to computecanada  
-
-- 1 Go to Globus help page on compute canada https://docs.computecanada.ca/wiki/Globus.
-- 2 Follow the link to log on to globus. (You use can use a gmail or orcid to log on to globus; or computecanada credentials - but that didn't work for me.
-
-- 3 Once into the system, set up the two panel view (top left buttons)
-
-- 4 In the left panel, put:
-  - Collection: OLCF DOI-DOWNLOADS
-  - Path: /OLCF/201712/10.13139_OLCF_1411410/
-
-- 5 In the right panel, put (eg. for graham):
-  - Collection: computecanada#graham-dtn 
-  - Path: < ~/scratch/where_you_want
-
-- Click the transfer arrow on the left to transfer the poplar data to your chosen directory. (Not the one on the right - that does the opposite transfer, which I tried a few times *lol*).
-
-This is all a bit of a pain, but the download is very fast.
-
-### 
-
-- Unzip the files: `tar -vxzf 55.tar.gz `
- 
-- What is there?
-
-```
-
