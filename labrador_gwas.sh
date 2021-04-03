@@ -109,10 +109,16 @@ plink --bfile cr237_dryad_5 --maf 0.05 --dog --make-bed --out cr237_dryad_6
 
 #### 5: Hardy-Weinberg Equilibrium ############################################
 
-# Delete SNPs which are far from Hardy-Weinberg equilibrium (HWE) based on 
-# some threshold for p-value (10e-7 in Baker et al.).
+# Far more heterozygous calls than expected? Probably systemic calling error.
+# Fewer heterozygotes than expected? Could be population stratification.
+# (Migration, natural selection, and/or non-random mating violations).
+# GWAS methods often assume HW-equilibrium.
+
+# We want to delete SNPs which are far from Hardy-Weinberg equilibrium (HWE)
+# based on some threshold for p-value (eg. 10e-7 in Baker et al.).
 # The --hwe default in plink only filters the controls, so we use two steps, 
-# first on controls, then cases. The thresholds can be looser on cases (more significant).
+# first on controls, then cases. The thresholds can be looser on cases 
+# than controls (more significant).
 
 # compute HWE
 plink --bfile cr237_dryad_6 --hardy --dog
@@ -126,79 +132,60 @@ head plinkzoomhwe.hwe
 Rscript --no-save ./R/hwe.R
 
 # --hwe filter for controls with HWE p-value > 1e-7
-plink --bfile cr237_dryad_6 --hwe 1e-7 --dog --make-bed --out cr237_hwe_filter_step1
+plink --bfile cr237_dryad_6 --hwe 1e-7 --dog  \
+  --make-bed --out cr237_hwe_filter_step1
 # --hwe: 43 variants removed due to Hardy-Weinberg exact test.
 
 # Do --hwe 1e-7 and --hwe-all to filter the case SNPs
-plink --bfile cr237_hwe_filter_step1 --hwe 1e-7 --dog --hwe-all --make-bed --out cr237_dryad_7
+plink --bfile cr237_hwe_filter_step1 --hwe 1e-7 --dog \
+  --hwe-all --make-bed --out cr237_dryad_7
 # --hwe: 93 variants removed due to Hardy-Weinberg exact test.
 # 115703 variants and 237 dogs pass filters and QC.
 
 
-### 5: Heterozygosity filter / 'Pruning' SNPs ################################
-
-# Far more heterozygous calls than expected? Probably systemic calling error.
-# Fewer heterozygotes than expected? Could be population stratification.
-# (Migration, natural selection, and/or non-random mating violations).
-# GWAS methods often assume HW-equilibrium.
+### 5: Linkage Equilibrium / 'Pruning' SNPs ################################
 
 
 # Prune SNPs to only consider uncorrelated loci (requires an input file of LD
 # regions to exclude).
 # The --indep-pairwise parameters `50 5 0.2` stand respectively for:  
-#  1 the window size, 
+#  1 the window size 50 kbp, 
 #  2 the number of SNPs to shift the window at each step,  
 #  3 and the multiple correlation coefficient for a SNP being 
 #    regressed on all other SNPs simultaneously. 
+# Any pairs of SNPs that are too correlated will have one removed
 
 
-# Filtering individuals with heterozygosity that deviates from the mean.
-plink --bfile cr237_dryad_7 --dog --indep-pairwise 50 5 0.2 --out indepSNP
-plink --bfile cr237_dryad_7 --dog --extract indepSNP.prune.in --het --out R_check
-head R_check.het
+# 'Prune' SNPs with heterozygosity that deviates from the mean.
+plink --bfile cr237_dryad_7 --dog \
+  --indep-pairwise 50kb 5 0.2 --out indepSNP
+
+# Select the set of SNPs which are not highly correlated, with --extract.
+# Then check the heterozygosity of these snps with --het
+plink --bfile cr237_dryad_7 --dog \
+  --extract indepSNP.prune.in --het --out R_check
 
 # Plot of the heterozygosity rate distribution
 Rscript --no-save ./R/check_heterozygosity_rate.R
-
-# And remove individuals with a heterozygosity rate 
-# deviating more than 3 sd from the mean. 
+head R_check.het
+# Create a list of the outliers (>3sd from mean); remove quot marks
 Rscript --no-save ./R/heterozygosity_outliers_list.R
-cat fail-het-qc.txt
-
-# Checks for heterozygosity are performed on a set of SNPs 
-# which are not highly correlated. 
-
-# Therefore, to generate a list of non-(highly)correlated SNPs, 
-# we exclude high inversion regions (inversion.txt [High LD regions]) 
-# and prune the SNPs using the command --indep-pairwise?. 
-
-
-
-
-# When using our example data/the HapMap data this list contains 2 individuals (i.e., two individuals have a heterozygosity rate deviating more than 3 SD's from the mean).
-# Adapt this file to make it compatible for PLINK, by removing all quotation marks from the file and selecting only the first two columns.
 sed 's/"// g' fail-het-qc.txt | awk '{print$1, $2}'> het_fail_ind.txt
 cat het_fail_ind.txt
 
-# --remove: heterozygosity rate outliers from index file.
-plink --bfile HapMap_3_r3_9 --remove het_fail_ind.txt --make-bed --out HapMap_3_r3_10
+# --remove heterozygosity rate outlier individuals from the list
+plink --bfile cr237_dryad_7 --dog \
+  --remove het_fail_ind.txt \
+  --make-bed --out cr237_dryad_8
 
 
+### 6: Cryptic Relatedness Test ##########################################
 
+# - Examine individuals with high relatedness.
+# - Want to exclude relatives from analysis (independant sample assumed).
+# - Keep 'founders'; remove any individuals whose parents are in the study.
+# - Normally remove any individuals with 'cryptic relatedness'.
 
-### step 6
-
-<!-- It is essential to check datasets you analyse for cryptic relatedness. -->
-<!-- Assuming a random population sample we are going to exclude all individuals above the pihat threshold of 0.2 in this tutorial. -->
-
-- Examine individuals with high relatedness.
-- Want to exclude relatives from analysis (indep. sample).
-- Keep 'founders'; remove any individuals whose parents are in the study.
-- Normally remove any individuals with 'cryptic relatedness'.
-
-
-
-```{r, engine='bash', eval = FALSE}
 # Check for relationships between individuals with a pihat > 0.2.
 plink --bfile HapMap_3_r3_10 --extract indepSNP.prune.in --genome --min 0.2 --out pihat_min0.2
 
