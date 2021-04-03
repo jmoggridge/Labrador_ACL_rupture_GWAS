@@ -1,217 +1,50 @@
----
-title: "10 things I hate about GWAS"
-author: "J Moggridge"
-date: "27/03/2021"
-output: pdf_document
----
+# Labrador retriever GWAS for ACL rupture (air-bud syndrome)
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, messages = FALSE)
-```
+# Article Source: Genome-wide association analysis in dogs implicates 99 
+# loci as risk variants for anterior cruciate ligament rupture
+# Baker LA, Kirkpatrick B, Rosa GJM, Gianola D, Valente B, et al. (2017) 
+# PLOS ONE 12(4): e0173810. https://doi.org/10.1371/journal.pone.0173810
 
-Datadryad: https://datadryad.org/stash/dataset/doi:10.5061/dryad.8kk06
-DOI: doi:10.5061/dryad.8kk06 -> escape /: doi%10.5061%dryad.8kk06
-
-Usage Notes
-cr237_dryad.fam
-Plink binary format fam file for 237 Labrador retrievers phenotyped for ACL rupture. 1= unaffected, 2 = affected
-cr237_dryad.bed
-Plink binary format .bed file for 237 labrador retrievers phenotyped for ACL rupture
-cr237_dryad.bim
-Plink binary format .bim file for 237 Labrador retrievers phenotyped for ACL rupture
-
-<!-- 1. Big Data:  -->
-
-<!--  - You'll need the entire genome (obviously)  -->
-<!--  - You'll need potentially thousands of individuals -->
-<!--  - Lots of potential for spurious correlation -->
-
-<!--  \*.bed. \*.bim, \*.map files, with genotype, variant, and position data -->
-
-<!-- 2. So much filtering! -->
-
-<!--  - Get rid of relatives or 'cryptic relatedness' -->
-<!--  - Minor allele frequency -->
-<!--  - HWE -->
-
-<!-- 3. A million $X^2$ tests (for classification) -->
-
-<!--  - Each position is modeled, coefficient and a p-value per SNP -->
-<!--  - But so many tests means likely to find spurious correlation -->
-
-<!-- 4. Computationally expensive -->
-<!--  - Fitting a lot of models -->
-<!--  - Often imputing data -->
-
-<!-- 4. That classic GWAS plot -->
-<!--  -  -->
-
-<!-- 5. You just can't stop, can you -->
-
-<!--  - Pathway analysis -->
-
- 
+# The data is available on data dryad (curl download below)
+# There is better-explained info on Plink here:
 
 
-Data:
- - `HapMap_3_r3_1.bed`: binary ?? file
- - `HapMap_3_r3_1.bim`: this has our snpnames and genotypes
- - `HapMap_3_r3_1.fam`: has relationship info
+### Do this on a login node    #########################################
 
+curl -L http://datadryad.org/api/v2/datasets/doi%253A10.5061%252Fdryad.8kk06/download --output labrador_download
+unzip labrador_download
+rm labrador_download
 
+# note that we get the .bed, .bim., and .fam files 
+# (genotypes, locus info, phenotypes)
 
-Steps:
+#### Start your interactive session now ################################
 
- - Filter data (`plink`)
-      - 1 Loci and subjects by missing data
-      - 2 Sex discrepency: delete or imputed
-      - 3 bfile of autosomal snps with maf > threshold
-      - 4 Hardy-Weinberg equilibrium p-value filter
-      - 5 Pruning
-      - 6 Pop stratification
- 
- 
-<!-- ## figure out what this means: -->
-<!-- # Before main variant filters, 112 founders and 53 nonfounders present. -->
+srun --pty --account def-nricker --mem=4G -N 1 -n 4 -t 0-01:30 /bin/bash
 
-First, clone the repository for the tutorial, then copy the HTTP tags an paste it in as the github link when creating a new R project with version control:
-The original authors repo is at https://github.com/MareesAT/GWA_tutorial and the paper describing it is here: .
-
-```{r, engine='bash', eval = 'FALSE'}
-# GWA tutorial script 1
-git clone https://github.com/jmoggridge/GWA_tutorial
-cd GWA_tutorial/
-```
-
-
-```{r, engine='bash', eval = 'FALSE'}
-# now, setup an interactive session
-# srun --pty --account {my-account-name} –mem=16G -N 1 -n 6 -t 0-01:30 /bin/bash
-srun --pty --account def-nricker --mem=16G -N 1 -n 6 -t 0-01:30 /bin/bash
-```
-
-
-```{r, engine='bash', eval = 'FALSE'}
-# load modules plink and r (with dependencies on graham)
+# modules to load on graham
 module load nixpkgs/16.09 gcc/7.3.0 r/4.0.2 plink/1.9b_4.1-x86_64 
-# unzip first tutorial
-unzip 1_QC_GWAS.zip 
-cd 1_QC_GWAS
-```
 
-<!-- ## these are the data files that we start with;  -->
-<!-- ## they are linked, ie. they have data for the same individuals -->
+## 1: Filter by genotype missingness ####################################
 
-<!-- # HapMap_3_r3_1.bed # binary something file -->
-<!-- # HapMap_3_r3_1.bim # this has our snpnames and genotypes -->
-<!-- # HapMap_3_r3_1.fam # has relationship info -->
+# check missingness with --missing
+# because we have non-human data, we always specify the organism --dog
+plink --bfile cr237_dryad --missing --dog 
 
+# files .imiss .lmiss show the proportion of missing data per loci and indiv.
+# plot the missingness results.
+Rscript --no-save ./R/hist_miss.R
 
-<!-- # Investigate missingness per individual and per SNP and make histograms. -->
-
-# Part 1 - Filtering data
-
-*The original tutorial has some extraneous filtering steps that don't remove any variants.*
-
-
-
-### Step 1: Missing data? 
-
-
-```{r, engine='bash', eval = 'FALSE'}
-plink --bfile HapMap_3_r3_1 --missing
-```
-
-Output files: `plink.imiss` and `plink.lmiss` files show the proportion of missing SNPs per individual and the proportion of missing individuals per SNP.
-
-Typical plink cli output:
-```
-Logging to plink.log.
-Options in effect:
-  --bfile HapMap_3_r3_1
-  --missing
-
-128539 MB RAM detected; reserving 64269 MB for main workspace.
-1457897 variants loaded from .bim file.
-165 people (80 males, 85 females) loaded from .fam.
-112 phenotype values loaded from .fam.
-Using 1 thread (no multithreaded calculations invoked).
-Before main variant filters, 112 founders and 53 nonfounders present.
-Calculating allele frequencies... done.
-Warning: 225 het. haploid genotypes present (see plink.hh ); many commands
-treat these as missing.
-Total genotyping rate is 0.997378.
---missing: Sample missing data report written to plink.imiss, and variant-based
-missing data report written to plink.lmiss.
-```
-
-#### Useful lines in the output:  
-
-    > 1457897 variants loaded from .bim file.
-    > 165 people (80 males, 85 females) loaded from .fam.
-    > 112 phenotype values loaded from .fam.
-    > Total genotyping rate is 0.997378.
-
-
-```{r, engine='bash', eval = 'FALSE'}
-# Generate plots to visualize the missingness results.
-Rscript --no-save hist_miss.R
-```
-
-
-<!-- # ``` R code for: histimiss.pdf  histlmiss.pdf -->
-<!-- # indmiss <- read.table(file = "plink.imiss", header = TRUE) -->
-<!-- # snpmiss<-read.table(file = "plink.lmiss", header = TRUE) -->
-<!-- # # read data into R  -->
-<!-- #  -->
-
-<!-- ## histogram of missingness for individuals -->
-<!-- # pdf("histimiss.pdf") #indicates pdf format and gives title to file -->
-<!-- # hist(indmiss[,6], main="Histogram individual missingness")  -->
-
-<!-- ## histogram of missingness for loci  -->
-<!-- # pdf("histlmiss.pdf")  -->
-<!-- # hist(snpmiss[,5],main="Histogram SNP missingness")   -->
-<!-- # dev.off()  -->
-<!-- # ``` -->
-
-
-#### Filter by genotype missingness across:
-
- - SNPs - use plink argument `-geno 0.02` 
- - Individuals - use plink arg `-mind 0.02` 
- - drop any where more than 2% of data are missing
- 
-<!-- # Delete SNPs and individuals with high levels of -->
-<!-- # missingness, explanation of this and all following steps  -->
-<!-- # can be found in box 1 and table 1 of the article mentioned  -->
-<!-- # in the comments of this script. -->
-<!-- # The following two QC commands will not remove any SNPs or  -->
-<!-- # individuals. However, it is good practice to start the QC with -->
-<!-- # these non-stringent thresholds.   -->
-
-<!-- This does nothing, why bother including -->
-<!-- # Create new bed file after each step (HapMap_3_r3_2,...,_5) -->
-<!-- # Delete SNPs with missingness >0.2.  -->
-<!-- plink --bfile HapMap_3_r3_1 --geno 0.2 --make-bed --out HapMap_3_r3_2 -->
-<!-- # note --geno 0.2 doesn't actually filter anything -->
-
-<!-- # Delete individuals with missingness >0.2. -->
-<!-- plink --bfile HapMap_3_r3_2 --mind 0.2 --make-bed --out HapMap_3_r3_3 -->
-<!-- # you'd have to drop --mind 0.01 to lose more than 1 individual -->
-
-```{r, engine='bash', eval = 'FALSE'}
 # Delete SNPs with missingness >0.02.
-plink --bfile HapMap_3_r3_1 --geno 0.02 --make-bed --out HapMap_3_r3_2
+plink --bfile cr237_dryad --geno 0.02 --make-bed --out cr237_dryad_2
 
 # Delete individuals with missingness >0.02.
-plink --bfile HapMap_3_r3_2 --mind 0.02 --make-bed --out HapMap_3_r3_3
-```
+plink --bfile cr237_dryad_2 --mind 0.02 --make-bed --out cr237_dryad_3
 
-<!-- # > Total genotyping rate is 0.997899. -->
-<!-- # > 1430443 variants and 165 people pass filters and QC. -->
-<!-- # > Among remaining phenotypes, 56 are cases and 56 are controls.   -->
-<!-- # > (53 phenotypes are missing.) -->
+ # Total genotyping rate is 0.997899.
+ # 1430443 variants and 165 people pass filters and QC.
+ # Among remaining phenotypes, 56 are cases and 56 are controls.  
+ # (53 phenotypes are missing.) --> # (53 phenotypes are missing.)
 
 
 We dropped 21,579 of 1,457,897 variants due to missing genotype data (--geno) and none from the --mind filter. Note that we dropped some of the data we were getting warnings about:
