@@ -61,8 +61,8 @@ logistic <-
   read_delim("result2.assoc.logistic",delim = ' ') %>% 
   janitor::clean_names() %>% 
   mutate_all(trimws) %>% 
-  transmute(chr, bp, p) %>% 
-  mutate_all(as.numeric) 
+  transmute(chr, bp, p, snp) %>% 
+  mutate(across(c(chr, bp, p), as.numeric))
 
 glimpse(logistic)
 library(patchwork)
@@ -116,6 +116,14 @@ fig3_manhattan <- man0/man1/man2/man3 &
   plot_annotation(
     title = "Manhattan plot of logistic regression tests")
 
+library(qqman)
+
+manhattan(logistic, chr = 'chr', bp = 'bp' , p = 'p', snp = 'snp', 
+          main = "Manhattan plot for logistic regression tests")
+
+qq(logistic$p, main = "Q-Q plot of GWAS p-values from logisitic regression")
+
+ggplot(logistic)
 
 ### write files
 
