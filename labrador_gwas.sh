@@ -16,8 +16,35 @@ curl -L http://datadryad.org/api/v2/datasets/doi%253A10.5061%252Fdryad.8kk06/dow
 unzip labrador_download
 rm labrador_download
 
-# note that we get the .bed, .bim., and .fam files 
-# (genotypes, locus info, phenotypes)
+# note that we get the cr237_dryad.bed, .bim., and .fam files 
+# .bed is a binary file with genotypes
+# .bim is a binary file with info about variant loci
+# .fam has the phenotype info and genders and is text
+
+# The .fam file has no header, so it's useful to know the columns:
+# 1 Family ID ('FID')
+# 2 Within-family ID ('IID'; cannot be '0')
+# 3 Within-family ID of father ('0' if father isn't in dataset)
+# 4 Within-family ID of mother ('0' if mother isn't in dataset)
+# 5 Sex code ('1' = male, '2' = female, '0' = unknown)
+# 6 Phenotype value ('1' = control, '2' = case, '-9'/'0'/non-numeric = missing data if case/control)
+
+head cr237_dryad.fam
+
+# We don't have any relatives so the FIDs are all the same as the IIDs
+# and columns 3 and 4 are all zeros. Our outcome of interest is column 6.
+
+# see here for more info about file formats (other input formats are possible):
+# https://www.cog-genomics.org/plink/1.9/formats
+
+### Getting plinky with it: Basic Plink usage primer
+
+# plink --(b)file {my_data} --dog --options --commands --out {new_name} 
+
+# we use the --bfile flag because we have bed/bim/fam files
+# we use the --make-bed flag to get the same type of files back
+# we always have to use the --dog flag because 38 chromosomes
+
 
 #### Start your interactive session now ################################
 
@@ -42,7 +69,7 @@ module load nixpkgs/16.09 gcc/7.3.0 r/4.0.2 plink/1.9b_4.1-x86_64
 #################################################################
 
 
-## 1: Filter by genotype missingness ############################
+## 1: Data Missingness ############################
 
 # check missingness with --missing
 # because we have non-human data, we always specify the organism --dog
@@ -62,7 +89,7 @@ plink --bfile cr237_dryad_2 --mind 0.05 --dog --make-bed --out cr237_dryad_3
 # 7468 variants removed due to missing genotype data (--geno).
 # 0 dogs removed due to missing genotype data (--mind).
 
-## 2: Sex discrepency  ##########################################
+## 2: Sex Discrepency  ##########################################
 
 # ignore snps in the canine pseudoautosomal region of X-chromosome
 plink --bfile cr237_dryad_3 --dog --split-x 6630000 126883977 \
@@ -166,25 +193,27 @@ plink --bfile cr237_hwe_filter_step1 --hwe 1e-7 --dog \
 # 115703 variants and 237 dogs pass filters and QC.
 
 
-### 5: Linkage Equilibrium / 'Pruning' SNPs ################################
+### 5: Linkage Disequilibrium & Pruning ###########################
 
-# Prune SNPs to only consider uncorrelated loci (requires an input file of LD
-# regions to exclude).
+# 'We will 'prune' the set of SNPs with `--indep-pairwise`
+# to get a subset consisting of loci that are
+# in approximate linkage equilibrium. This removes a bunch of SNPs
+# that are highly correlated.
 # The --indep-pairwise parameters `50 5 0.2` stand respectively for:  
 #  1 the window size 50 kbp, 
 #  2 the number of SNPs to shift the window at each step,  
 #  3 and the multiple correlation coefficient for a SNP being 
 #    regressed on all other SNPs simultaneously. 
 # Any pairs of SNPs that are too correlated will have one removed
-# Can also removed inverted regions (provide text of ??)
-# Then we filter any individuals with heterozygosity >3sd from mean
+# Then we filter any individuals with heterozygosity >3sd from mean 
+# across the pruned set of SNPs.
 
 # Get a list of SNPs with high correlation to 'Prune' 
 plink --bfile cr237_dryad_6 --dog \
   --indep-pairwise 50kb 5 0.2 --out indepSNP
 
-# Select the set of SNPs which are not highly correlated, with --extract.
-# Then check the heterozygosity of these snps with --het
+# Subset of pruned SNPs with --extract
+# Check the heterozygosity of these snps with --het
 plink --bfile cr237_dryad_6 --dog \
   --extract indepSNP.prune.in --het --out R_check
 
@@ -238,22 +267,20 @@ Rscript --no-save ./R/relatedness_tidy.R
 # For each pair of 'related' individuals with a pihat > 0.2,
 # we recommend to remove the individual with the lowest call rate. 
 plink --bfile cr237_dryad_8 --dog --missing
-less plink.imiss
+head plink.imiss 
 
 ## ok so we could venture to identify which to remove based on 
 ## missingness but it doesn't seem that the authors did this,
 ## but rather made up for it in their modelling 
 
-# Use an UNIX text editor (e.g., vi(m) ) to check which 
-# individual has the highest call rate in the 'related pair'. 
+# Generally, drop the individual with the lower call rate in the 'related pair'. 
 
 # Generate a list of FID and IID of the individual(s) with
 # a Pihat above 0.2, to check who had the lower call rate of the pair.
 # In our dataset the individual 13291  NA07045 had the lower call rate.
-# < !-- vi 0.2_low_call_rate_pihat.txt -->
-
 # nano 0.2_low_call_rate_pihat.txt 
-## eg. put in this line: 13291  NA07045
+# eg. put a line for each individual to remove with the id columsn
+# : 13291  NA07045
 
 
 ## In case of multiple 'related' pairs, the list generated 
@@ -291,12 +318,98 @@ rm *_hwe_filter*
 ## that deviate from the group based on a selected threshold.
 ## Since we are dealing with dogs, (and there is no 1000 dog genomes)
 ## we'll just perform MDS to check for any outliers in the labrador
-## retrievers.
-
+## retrievers. We also take the MDS components as covariates to control
+## for any stratification in our sample
 
 ## For more details, see
 ## https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6001694/, which
 ## provides a worked example with human SNP data anchored to the 
 ## 1000 genomes data.
+
+## For more info on plink clustering options: 
+# https://www.cog-genomics.org/plink/1.9/strat
+
+# Get the pairwise IBS metrics
+plink --bfile cr237_dryad_8 --dog --extract indepSNP.prune.in \
+  --genome --out cr237_dryad_8
+head cr237_dryad_8.genome
+
+# Do MDS clustering of individuals based on autosomal SNP genotypes 
+# We pass the IBS data along with --read-genome.
+# --cluster does complete linkage hclust by default,
+# so we pass the --mds-plot flag to get MDS and tell it to give
+# the first 10 dimensions
+
+plink --bfile cr237_dryad_8 --dog --read-genome cr237_dryad_8.genome \
+  --cluster --mds-plot 10 --out cr237_dryad_8
+
+# download these two files into your local project directory:
+# cr237_dryad_8.mds
+# cr237_dryad_8.fam
+# plot the MDS in Rstudio by running: source("./R/MDS_presentation.R")
+
+# In the first two MDS components we can vaguely see two groups,
+# but no individuals are extremely far from the cloud.
+
+# We dont need to, but we could exclude the couple controls that
+# are around -0.1 in coefficient 2 as an example
+
+# Using awk to exlcude them from the list
+awk '{ if ($5 >-0.07) print $1,$2 }' cr237_dryad_8.mds \
+  > cr237_dryad_8_strat
+
+# To only keep the individuals we want
+plink --bfile cr237_dryad_8 --dog --keep cr237_dryad_8_strat \
+  --make-bed --out cr237_dryad_8_strat
+
+# You can see that this removed those three distant dogs.
+# However we don't need to do this because we don't really have 
+# any other data to reference against here.
+# Removing individuals decreases our power (and otherwise
+# we'd have to redo the MDS).
+rm cr237_dryad_8_stra*
+
+# Speaking of MDS, we want to reformat the .mds file to a
+# plink covariate file for the association analysis.
+# This will help to control for any population stratification.
+
+awk '{print$1, $2, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13}' \
+  cr237_dryad_8.mds > covar_mds.txt
+head covar_mds.txt 
+
+
+#################################################################
+## PART 3 - Associations
+#################################################################
+
+## Association testing for binary traits
+# (--assoc) without correction for MDS covariates (bad)
+plink --bfile cr237_dryad_8 --dog \
+  --extract indepSNP.prune.in \
+  --assoc --out result1
+head result1.assoc 
+
+
+# Logistic regression (--logistic) for binary trait with 
+# 10 principal components. We include MDS components by providing
+# our list in covar_mds.txt to the `--covar` parameter
+# from. Option --hide-covar shows only additive results (not the
+# tests against all the covariates)
+# --extract is providing the pruned SNP subset indices
+plink --bfile cr237_dryad_8 --dog \
+  --extract indepSNP.prune.in \
+  --covar covar_mds.txt \
+  --logistic \
+  --hide-covar \
+  --out result2
+head result2.assoc.logistic 
+wc -l result2.assoc.logistic 
+
+# Check if there are any NA values in the results
+awk '/'NA'/' result2.assoc.logistic | wc -l 
+# Remove any NA values from results
+awk '!/'NA'/' result2.assoc.logistic  > result2.assoc.logistic
+
+
 
 
