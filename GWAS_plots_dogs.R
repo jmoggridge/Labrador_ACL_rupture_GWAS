@@ -96,27 +96,9 @@ read_rds("Figure3_mahattan.rds")
 # (adapted from https://www.r-graph-gallery.com/101_Manhattan_plot.html)
 
 
+gg_manhattan_plot <- function(assoc_data, snpsOfInterest = NULL){
 
-
-# List of SNPs to highlight are in the snpsOfInterest object
-# We will use ggrepel for the annotation
-
-
-
-
-snpsOfInterest <- logistic %>% 
-  filter(p < 0.00001) %>% 
-  pull(snp)
-
-gg_manhattan_plot <- function(df, snpsOfInterest = NULL){
-  snpsOfInterest <- ifelse(
-    is.null(snpsOfInterest),
-    snpsOfInterest <- logistic %>% 
-      filter(p < 0.00001) %>% 
-      pull(snp),
-    snpsOfInterest
-  )
-  df <- df %>% 
+  assoc_data <- assoc_data %>% 
     group_by(chr) %>% 
     summarise(chr_len = max(bp)) %>% 
     # cumulative position of each chromosome
@@ -131,29 +113,31 @@ gg_manhattan_plot <- function(df, snpsOfInterest = NULL){
     mutate(is_highlight = ifelse(snp %in% snpsOfInterest, "yes", "no")) %>%
     mutate(is_annotate = ifelse(-log10(p) > 4, "yes", "no"))
   
-  # Prepare X axis
-  axisdf <- df %>% 
+  # Prepare X axis breaks + labels
+  axisdf <- assoc_data %>% 
     group_by(chr) %>%
     summarize(center=(max(BPcum) + min(BPcum)) / 2)
   
   # Make the manhattan plot showing -logP ~ position:
-  ggplot(df, aes(BPcum, -log10(p))) +
+  ggplot(assoc_data, aes(BPcum, -log10(p))) +
     geom_point(aes(color = as.factor(chr)), alpha = 0.8, size = 1) +
-    scale_color_manual(values = rep(c("grey", "skyblue"), 22)) +
+    scale_color_manual(values = rep(c("grey35", "skyblue"), 100)) +
     # Add highlighted points
     geom_point(
-      data = df %>% filter(is_highlight == "yes"),
+      data = assoc_data %>% filter(is_highlight == "yes"),
       color = "orange",
       size = 2) +
     # Add labels using ggrepel to avoid overlap
-    geom_text_repel(data = df %>% filter(is_annotate == "yes"),
-                    aes(label = snp),
-                    size = 2) +
+    geom_text_repel(
+      data = assoc_data %>% filter(is_annotate == "yes"),
+      aes(label = snp),
+      size = 2) +
     # Set x-axis breaks + labels
     scale_x_continuous(
-      label = axisdf$center, breaks = axisdf$center) +
-    # remove space between plot area and x axis
-    scale_y_continuous(expand = c(0, 0.1)) +
+      label = axisdf$chr, 
+      breaks = axisdf$center,
+      expand = c(0.01, 0.01)) +
+    scale_y_continuous(expand = c(0.05, 0.05)) +
     # Custom the theme:
     labs(x = 'position') +
     theme_bw() +
@@ -165,5 +149,44 @@ gg_manhattan_plot <- function(df, snpsOfInterest = NULL){
     )
 }
 
-gg_manhattan_plot(logistic)
+
+# create a vector of snps to we want to highlight
+snpsOfInterest <- logistic %>% filter(p < 10e-6) %>% pull(snp)
+
+gg_manhattan_plot(logistic, snpsOfInterest) +
+  scale_y_continuous(expand = c(0.05, 0.05), limits = c(0, 5.5),
+                     breaks = seq(0, 5.5, 0.5)) +
+  labs(subtitle = "Logistic regression test for SNP association")
+
+
+# QQ plot
+
+ci <- 0.95
+nSNPs <- nrow(logistic)
+
+# create a sorted vector of p-values,
+# use the ppoints function to get the expected distribution
+plotdata <- tibble(
+  observed = sort(logistic$p),
+  expected = ppoints(nSNPs),
+  ci_lower   = qbeta(p = (1 - ci) / 2, 
+                   shape1 = seq(nSNPs), 
+                   shape2 = rev(seq(nSNPs))),
+  ci_upper   = qbeta(p = (1 + ci) / 2, 
+                   shape1 = seq(nSNPs), 
+                   shape2 = rev(seq(nSNPs)))
+) %>% 
+  mutate_all(~ -log10(.x))
+
+plotdata %>% 
+  ggplot(aes(expected, observed)) +
+  geom_abline(intercept = 0, slope = 1, lty = 2, color = 'gray') +
+  geom_point(shape = 1, ) +
+  coord_equal() +
+  theme_classic() +
+  labs(
+    x = expression(Expected ~ -log[10](p)),
+    y = expression(Observed ~ -log[10](p)),
+    title = "Q-Q plot for logistic regression association model"
+    )
 
