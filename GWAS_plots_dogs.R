@@ -55,18 +55,74 @@ fig2 <- ggpairs(
   theme_classic() +
   labs() + theme(legend.position = "bottom")
 
+library(tidyverse)
+# parse logistic regression results
+logistic <- 
+  read_delim("result2.assoc.logistic",delim = ' ') %>% 
+  janitor::clean_names() %>% 
+  mutate_all(trimws) %>% 
+  transmute(chr, bp, p) %>% 
+  mutate_all(as.numeric) 
 
-read_delim("result2.assoc.logistic")
+glimpse(logistic)
+library(patchwork)
 
+man0 <- 
+  logistic %>% 
+  filter(chr <11) %>% 
+  ggplot(aes(bp, -log(p, 10))) +
+  geom_point(alpha = 0.5, size = 0.2) +
+  facet_wrap(~chr, nrow = 1, scales = 'free_x') +
+  theme_light() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.spacing = unit(0, 'lines')) +
+  labs(y = expression(-log[10](p)))
+man0
 
+man1 <-   logistic %>% 
+  filter(chr > 10 & chr <21) %>% 
+  ggplot(aes(bp, -log(p, 10))) +
+  geom_point(alpha = 0.5, size = 0.2) +
+  facet_wrap(~chr, nrow = 1, scales = 'free_x') +
+  theme_light() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.spacing = unit(0, 'lines')) +
+  labs(y = expression(-log[10](p)))
 
+man2 <-   logistic %>% 
+  filter(chr > 20 & chr <31) %>% 
+  ggplot(aes(bp, -log(p, 10))) +
+  geom_point(alpha = 0.5, size = 0.2) +
+  facet_wrap(~chr, nrow = 1, scales = 'free_x') +
+  theme_light() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.spacing = unit(0, 'lines')) +
+  labs(x = 'position', y = expression(-log[10](p)))
 
-write_rds(fig1, "MDS_figure1.rds")
-write_rds(fig2, "MDS_figure2.rds")
+man3 <-   logistic %>% 
+  filter(chr > 30) %>% 
+  ggplot(aes(bp, -log(p, 10))) +
+  geom_point(alpha = 0.5, size = 0.2) +
+  facet_wrap(~chr, nrow = 1, scales = 'free_x') +
+  theme_light() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.spacing = unit(0, 'lines')) +
+  labs(x = 'position', y = expression(-log[10](p)))
+
+man0/man1/man2/man3
+
+write_rds(fig1, "Figure1_mds1.rds")
+write_rds(fig2, "Figure2_mds2.rds")
+write_rds(fig3_manhattan, "Figure3_mahattan.rds")
 
 # plot either of these into an rmarkdown with read_rds(file) 
-read_rds("MDS_figure1.rds")
-read_rds("MDS_figure2.rds")
+read_rds("Figure1_mds1.rds")
+read_rds("Figure2_mds2.rds")
+read_rds("Figure3_mahattan.rds")
 
 
 

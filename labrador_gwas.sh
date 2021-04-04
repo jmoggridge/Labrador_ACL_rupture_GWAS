@@ -382,8 +382,11 @@ head covar_mds.txt
 ## PART 3 - Associations
 #################################################################
 
-## Association testing for binary traits
-# (--assoc) without correction for MDS covariates (bad)
+## For more info:
+# https://www.cog-genomics.org/plink/1.9/assoc
+
+## 1df chi-square allelic test for binary traits (--assoc)
+#  without correction for MDS covariates (bad)
 plink --bfile cr237_dryad_8 --dog \
   --extract indepSNP.prune.in \
   --assoc --out result1
