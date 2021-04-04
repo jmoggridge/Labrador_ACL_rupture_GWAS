@@ -1,10 +1,15 @@
 ## Makes 2 plots from MDS data: 
 # Fig1: first 2 coefficients
 # Fig2: shows first 4 coefficients with 1d and 2d density
+# Fig3: manhattan plot
+# Fig4: qq-plot
 
 library(tidyverse)
 library(janitor)
 library(GGally)
+library(ggrepel)
+library(patchwork)
+library(qqman)
 
 # read mds data
 mds <- read_delim("cr237_dryad_8.mds", delim = ' ') %>% 
@@ -12,10 +17,10 @@ mds <- read_delim("cr237_dryad_8.mds", delim = ' ') %>%
   mutate(across(c1:c10,  as.numeric)) %>% 
   select(id = iid, c1:c10)
 
-
 # read phenotype data
 dogs <- 
-  read_delim("cr237_dryad_8.fam", delim = ' ', col_names = paste0('X', 1:6)) %>% 
+  read_delim("cr237_dryad_8.fam", delim = ' ', 
+             col_names = paste0('X', 1:6)) %>% 
   transmute(id = X1,
             sex = if_else(X5 == 1, 'M', 'F'),
             phenotype = case_when(
@@ -25,7 +30,7 @@ dogs <-
   ) %>% 
   mutate_if(is_character, as_factor) %>% 
   # combine .fam and .mds data by id
- right_join(mds, by = 'id')
+  right_join(mds, by = 'id')
 
 
 # plot mds
@@ -39,8 +44,6 @@ fig1 <- dogs %>%
   labs(x = 'MDS1', y = 'MDS2', 
        subtitle = paste("Metric multidimensional scaling of",
                         nrow(dogs),"dog genotypes"))
-# fig1  
-
 
 fig2 <- ggpairs(
   dogs, columns = (4:8),
@@ -55,7 +58,8 @@ fig2 <- ggpairs(
   theme_classic() +
   labs() + theme(legend.position = "bottom")
 
-library(tidyverse)
+
+
 # parse logistic regression results
 logistic <- 
   read_delim("result2.assoc.logistic",delim = ' ') %>% 
@@ -65,65 +69,15 @@ logistic <-
   mutate(across(c(chr, bp, p), as.numeric))
 
 glimpse(logistic)
-library(patchwork)
 
-man0 <- 
-  logistic %>% 
-  filter(chr <11) %>% 
-  ggplot(aes(bp, -log(p, 10))) +
-  geom_point(alpha = 0.5, size = 0.2) +
-  facet_wrap(~chr, nrow = 1, scales = 'free_x') +
-  theme_light() +
-  theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.spacing = unit(0, 'lines')) +
-  labs(x ='', y = expression(-log[10](p)))
 
-man1 <-   logistic %>% 
-  filter(chr > 10 & chr <21) %>% 
-  ggplot(aes(bp, -log(p, 10))) +
-  geom_point(alpha = 0.5, size = 0.2) +
-  facet_wrap(~chr, nrow = 1, scales = 'free_x') +
-  theme_light() +
-  theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.spacing = unit(0, 'lines')) +
-  labs(x = '', y = expression(-log[10](p)))
-
-man2 <-   logistic %>% 
-  filter(chr > 20 & chr <31) %>% 
-  ggplot(aes(bp, -log(p, 10))) +
-  geom_point(alpha = 0.5, size = 0.2) +
-  facet_wrap(~chr, nrow = 1, scales = 'free_x') +
-  theme_light() +
-  theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.spacing = unit(0, 'lines')) +
-  labs(x = '', y = expression(-log[10](p)))
-
-man3 <-   logistic %>% 
-  filter(chr > 30) %>% 
-  ggplot(aes(bp, -log(p, 10))) +
-  geom_point(alpha = 0.5, size = 0.2) +
-  facet_wrap(~chr, nrow = 1, scales = 'free_x') +
-  theme_light() +
-  theme(axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.spacing = unit(0, 'lines')) +
-  labs(x = 'position', y = expression(-log[10](p)))
-
-fig3_manhattan <- man0/man1/man2/man3 &
-  plot_annotation(
-    title = "Manhattan plot of logistic regression tests")
-
-library(qqman)
 
 manhattan(logistic, chr = 'chr', bp = 'bp' , p = 'p', snp = 'snp', 
+          annotatePval = 0.0001,
           main = "Manhattan plot for logistic regression tests")
 
 qq(logistic$p, main = "Q-Q plot of GWAS p-values from logisitic regression")
 
-ggplot(logistic)
 
 ### write files
 
@@ -137,4 +91,79 @@ read_rds("Figure2_mds2.rds")
 read_rds("Figure3_mahattan.rds")
 
 
+
+## ggplot manhattan 
+# (adapted from https://www.r-graph-gallery.com/101_Manhattan_plot.html)
+
+
+
+
+# List of SNPs to highlight are in the snpsOfInterest object
+# We will use ggrepel for the annotation
+
+
+
+
+snpsOfInterest <- logistic %>% 
+  filter(p < 0.00001) %>% 
+  pull(snp)
+
+gg_manhattan_plot <- function(df, snpsOfInterest = NULL){
+  snpsOfInterest <- ifelse(
+    is.null(snpsOfInterest),
+    snpsOfInterest <- logistic %>% 
+      filter(p < 0.00001) %>% 
+      pull(snp),
+    snpsOfInterest
+  )
+  df <- df %>% 
+    group_by(chr) %>% 
+    summarise(chr_len = max(bp)) %>% 
+    # cumulative position of each chromosome
+    mutate(tot = cumsum(chr_len) - chr_len) %>%
+    select(-chr_len) %>%
+    # join cumulative position to initial data
+    left_join(logistic, by = 'chr') %>%
+    # get the cumulative position of each SNP
+    arrange(chr, bp) %>%
+    mutate(BPcum = bp + tot) %>%
+    # Add highlight and annotation information
+    mutate(is_highlight = ifelse(snp %in% snpsOfInterest, "yes", "no")) %>%
+    mutate(is_annotate = ifelse(-log10(p) > 4, "yes", "no"))
+  
+  # Prepare X axis
+  axisdf <- df %>% 
+    group_by(chr) %>%
+    summarize(center=(max(BPcum) + min(BPcum)) / 2)
+  
+  # Make the manhattan plot showing -logP ~ position:
+  ggplot(df, aes(BPcum, -log10(p))) +
+    geom_point(aes(color = as.factor(chr)), alpha = 0.8, size = 1) +
+    scale_color_manual(values = rep(c("grey", "skyblue"), 22)) +
+    # Add highlighted points
+    geom_point(
+      data = df %>% filter(is_highlight == "yes"),
+      color = "orange",
+      size = 2) +
+    # Add labels using ggrepel to avoid overlap
+    geom_text_repel(data = df %>% filter(is_annotate == "yes"),
+                    aes(label = snp),
+                    size = 2) +
+    # Set x-axis breaks + labels
+    scale_x_continuous(
+      label = axisdf$center, breaks = axisdf$center) +
+    # remove space between plot area and x axis
+    scale_y_continuous(expand = c(0, 0.1)) +
+    # Custom the theme:
+    labs(x = 'position') +
+    theme_bw() +
+    theme(legend.position = "none", 
+          axis.text.x = element_text(size = 7),
+          panel.border = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank()
+    )
+}
+
+gg_manhattan_plot(logistic)
 
