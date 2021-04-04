@@ -77,8 +77,7 @@ man0 <-
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.spacing = unit(0, 'lines')) +
-  labs(y = expression(-log[10](p)))
-man0
+  labs(x ='', y = expression(-log[10](p)))
 
 man1 <-   logistic %>% 
   filter(chr > 10 & chr <21) %>% 
@@ -89,7 +88,7 @@ man1 <-   logistic %>%
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.spacing = unit(0, 'lines')) +
-  labs(y = expression(-log[10](p)))
+  labs(x = '', y = expression(-log[10](p)))
 
 man2 <-   logistic %>% 
   filter(chr > 20 & chr <31) %>% 
@@ -100,7 +99,7 @@ man2 <-   logistic %>%
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
         panel.spacing = unit(0, 'lines')) +
-  labs(x = 'position', y = expression(-log[10](p)))
+  labs(x = '', y = expression(-log[10](p)))
 
 man3 <-   logistic %>% 
   filter(chr > 30) %>% 
@@ -113,7 +112,12 @@ man3 <-   logistic %>%
         panel.spacing = unit(0, 'lines')) +
   labs(x = 'position', y = expression(-log[10](p)))
 
-man0/man1/man2/man3
+fig3_manhattan <- man0/man1/man2/man3 &
+  plot_annotation(
+    title = "Manhattan plot of logistic regression tests")
+
+
+### write files
 
 write_rds(fig1, "Figure1_mds1.rds")
 write_rds(fig2, "Figure2_mds2.rds")
