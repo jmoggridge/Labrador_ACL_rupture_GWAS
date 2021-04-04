@@ -399,14 +399,17 @@ head result1.assoc
 # from. Option --hide-covar shows only additive results (not the
 # tests against all the covariates)
 # --extract is providing the pruned SNP subset indices
+
 plink --bfile cr237_dryad_8 --dog \
+  --extract indepSNP.prune.in \
   --covar covar_mds.txt \
   --logistic \
   --hide-covar \
   --out result2
 head result2.assoc.logistic 
 wc -l result2.assoc.logistic 
-  # --extract indepSNP.prune.in \
+
+
 
 # Check if there are any NA values in the results
 awk '/'NA'/' result2.assoc.logistic | wc -l 
@@ -418,5 +421,5 @@ awk '!/'NA'/' result2.assoc.logistic  > result2.assoc.logistic
 # This file gives a Bonferroni corrected p-value, along with FDR and others.
 plink --bfile cr237_dryad_8 --dog \
   -assoc --adjust \
-  --out adjusted_assoc_results
+  --out result_adjusted
 
