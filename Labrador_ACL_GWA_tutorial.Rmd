@@ -446,7 +446,8 @@ Finally, we want to reformat the .mds file to a plink covariate file that we'll 
 
 ```{r MDS_covars, engine = 'bash', eval = F, include = T}
 awk '{print$1, $2, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13}' \
-  cr237_dryad_8.mds > covar_mds.txt
+  cr237_filter6.mds > covar_mds.txt
+  
 head covar_mds.txt
 ```
 
@@ -455,10 +456,105 @@ head covar_mds.txt
 
 ## Association analyis
 
+#### For more info about association testing with plink see:
+https://www.cog-genomics.org/plink/1.9/assoc
 
+
+### Testing with `--assoc`
+
+We first do simple Chi-squared test with one degree of freedom using the `--assoc` function. It's important to note that this testing does not include correction for the MDS covariates (which is undesirable).
+
+```{r, engine = 'bash', eval = F, include = T}
+plink --dog --bfile cr237_filter6 \
+  --extract indepSNP.prune.in \
+  --assoc --out result1
+head result1.assoc
+```
+
+We can see that this gets us the Chi-sq, p-value, and odds ratio statistics for each SNP. 
+
+
+We can also get various corrections for multiple testing: adjusted, Bonferroni, Holm, Sidak, and FDR stats can be obtained by calling `--assoc` with the `--adjust` flag. We get an extra file '*.assoc.adjusted' with the output.
+
+```{r, engine = 'bash', eval = F, include = T}
+plink --bfile cr237_filter6 --dog \
+  -assoc --adjust \
+  --out result_adjusted
+
+# see the two files, one has the Chi^2 tests, the other has corrected
+# p-values by various methods and is sorted by significance.
+head result_adjusted.assoc
+head result_adjusted.assoc.adjusted
+```
+
+Note: there aren't any (!) significant results after some corrections. Baker *et al*. note that Bonferroni correction might be too stringent given that dogs have many SNPs that are inherited in haplotype blocks due to extensive linkage disequilibrium.
+
+
+### Testing with `--logisitic`
+
+We do want to take the MDS covariates into account in our model though and the --assoc function doesn't do this.  We can do this with plink's `--logistic` function that fits a logistic regression model to the data with the MDS components as covariates (passed with `--covar`). We also provide the `--hide-covar` flag to only get the results for the SNPs (not the MDS covariates).
+
+```{r, engine = 'bash', eval = F, include = T}
+plink --dog  --bfile cr237_filter6 \
+  --extract indepSNP.prune.in \
+  --covar covar_mds.txt \
+  --logistic \
+  --hide-covar \
+  --out result2
+
+head result2.assoc.logistic 
+
+# Check if there are any NA values in the results
+awk '/'NA'/' result2.assoc.logistic | wc -l 
+# Remove any NA values from results
+awk '!/'NA'/' result2.assoc.logistic  > result2.assoc.logistic
+```
+
+DONE UP TO HERE!!!
+
+
+### Permutation testing
 
 
 ```{r, engine = 'bash', eval = F, include = T}
+# This involves randomly permuting the phenotypes to get 
+# an estimate significance empirically (like bootstrapping)
+# Go here learn more: https://zzz.bwh.harvard.edu/plink/perm.shtml
+# Output has fields:
+# CHR     Chromosome
+# SNP     SNP ID
+# STAT    Test statistic
+# EMP1    Empirical p-value (adaptive)
+# NP      Number of permutations performed for this SNP
+
+# EMP2 gives the multiple testing corrected p-values.
+
+# Perform 1M perrmutations.
+plink --bfile cr237_dryad_8 --dog \
+  --assoc --model mperm=1000000 \
+  --out result_perm_1M
+
+# Order your data, from lowest to highest p-value.
+sort -gk 4 result_perm_1M.assoc.mperm > sorted_subset.txt
+
+# Check results out
+head sorted_subset.txt
+```
+
+
+```{r, engine = 'bash', eval = F, include = T}
+# FYI - this will be the most computationally intensive step and will take
+# at least tens of minutes. Once started, it's a good time to run some 
+# of the R code included with this tutorial to see the data we
+# have generated already.
+
+# The Rscript can be run interactively, or with source('<filename>').
+# It will save .rds files for each figure that you can then view by
+# calling read.rds('<fig_filename>') in the R console or in an rmarkdown. 
+# Figures are ggplot2 objects, so elements of the plot appearance can 
+# be customized. 
+
+
 ```
 
 
@@ -473,8 +569,11 @@ head covar_mds.txt
 
 ---
 
-## Polygenic Risk Scores
+## Challenge: Polygenic risk scores
 
+Hurrah! You finished the entire tutorial! The next section covers plotting all the most important results in R.
+
+You're now a pro at using plink and you're ready to start exploring more GWAS methods on your own. Calculating the polygenic risk scores for the Labradors in our data is left as an exercise for the reader (*ie.* I ran out of time to work on this). 
 
 ----
 
@@ -483,11 +582,12 @@ head covar_mds.txt
 
 This section covers how to plot plink results with R. I prefer to use the `ggplot2` library over base R, so I will show you how to plot plink output this way. If you prefer base R plots, then see the [Marees GWAS tutorial](https://github.com/MareesAT/GWA_tutorial/).
 
+Install the following packages if you don't already have them (with `install.packages()`)
 
 ```{r libraries, include=F, eval=T}
-library(tidyverse)  # 
-library(patchwork)
-theme_set(theme_bw()) # this sets the base theme for all your plots
+library(tidyverse)  
+library(patchwork)    # to glue plots together
+library(GGally)       # for the MDS pairs plot
 ```
 
 
@@ -524,16 +624,18 @@ gwa_missing_snp <-
 
 # read data and make plots
 indiv <- read_delim("./plink.imiss", delim = ' ') %>% 
-  gwa_missing_indiv()
+  gwa_missing_indiv() +
+  theme_bw()
 snps <- read_delim("./plink.lmiss", delim = ' ') %>% 
-  gwa_missing_snp()
+  gwa_missing_snp() +
+  theme_bw()
 
 # with patchwork:: + operator to combine plots
 indiv + snps
 ```
 
 
-### QC: The Sex-check
+### QC: Sex-check
 
 This will plot the F-values from the plink.sexcheck results created in QC step 'b'.
 
@@ -560,6 +662,7 @@ gwa_sexcheck <- function(plink_sexcheck, plt_title){
 # using + labs(), + theme(), etc.
 read_delim("./plink.sexcheck", delim = ' ') %>% 
   gwa_sexcheck() +
+  theme_bw() +
   labs(
     x = 'X-chromsome inbreeding coefficient',
     y = 'dogs',
@@ -578,6 +681,7 @@ read_delim("./MAF_check.frq", delim = ' ') %>%
   janitor::clean_names() %>% 
   ggplot(aes(x = as.numeric(maf))) +
   geom_histogram() +
+  theme_bw() +
   labs(x = 'MAF', y = 'SNPs', 
        subtitle = "Minor allele frequency distribution")
 ```
@@ -593,6 +697,7 @@ read_delim("./plink.hwe", ' ') %>%
   mutate(fill = if_else(p < 1e-07, '< 1e-7', 'keep')) %>% 
   ggplot(aes(x = p, fill = fill)) +
   geom_histogram() +
+  theme_bw() +
   labs(x = 'p-value', y = 'SNPs', fill = '',
        subtitle = "Hardy-Weinberg equilibrium test")
 ```
@@ -676,4 +781,110 @@ You may want to check for outliers in multiple MDS components.
 fig1_gwas_mds2 <- gwas_mds2(dogs)
 fig1_gwas_mds2
 ```
+
+
+
+
+<!-- ### Manhattan plot -->
+
+<!-- This creates the classic GWAS figure: the Manhattan plot. The p-values for each SNP are plotted on the y-axis, with SNP position along the x-axis. This code was adapted from [a blog post by Daniel Roelfs](https://danielroelfs.com/blog/how-i-create-manhattan-plots-using-ggplot/). -->
+
+<!-- ```{r Manhattan1} -->
+<!-- gwas_manhattan_plot <- function(assoc_data, snpsOfInterest = NULL){ -->
+
+<!--   assoc_data <- assoc_data %>%  -->
+<!--     group_by(chr) %>%  -->
+<!--     summarise(chr_len = max(bp)) %>%  -->
+<!--     # cumulative position of each chromosome -->
+<!--     mutate(tot = cumsum(chr_len) - chr_len) %>% -->
+<!--     select(-chr_len) %>% -->
+<!--     # join cumulative position to initial data -->
+<!--     left_join(logistic, by = 'chr') %>% -->
+<!--     # get the cumulative position of each SNP -->
+<!--     arrange(chr, bp) %>% -->
+<!--     mutate(BPcum = bp + tot) %>% -->
+<!--     # Add highlight and annotation information -->
+<!--     mutate(is_highlight = ifelse(snp %in% snpsOfInterest, "yes", "no")) %>% -->
+<!--     mutate(is_annotate = ifelse(-log10(p) > 4, "yes", "no")) -->
+
+<!--   # Prepare X axis breaks + labels -->
+<!--   axisdf <- assoc_data %>%  -->
+<!--     group_by(chr) %>% -->
+<!--     summarize(center=(max(BPcum) + min(BPcum)) / 2) -->
+
+<!--   # Make the manhattan plot showing -logP ~ position: -->
+<!--   ggplot(assoc_data, aes(BPcum, -log10(p))) + -->
+<!--     geom_point(aes(color = as.factor(chr)), alpha = 0.8, size = 1) + -->
+<!--     scale_color_manual(values = rep(c("grey35", "skyblue"), 100)) + -->
+<!--     # Add highlighted points -->
+<!--     geom_point( -->
+<!--       data = assoc_data %>% filter(is_highlight == "yes"), -->
+<!--       color = "orange", -->
+<!--       size = 2) + -->
+<!--     # Add labels using ggrepel to avoid overlap -->
+<!--     geom_text_repel( -->
+<!--       data = assoc_data %>% filter(is_annotate == "yes"), -->
+<!--       aes(label = snp), -->
+<!--       size = 2) + -->
+<!--     # Set x-axis breaks + labels -->
+<!--     scale_x_continuous( -->
+<!--       label = axisdf$chr,  -->
+<!--       breaks = axisdf$center, -->
+<!--       expand = c(0.01, 0.01)) + -->
+<!--     scale_y_continuous(expand = c(0.05, 0.05)) + -->
+<!--     # Custom the theme: -->
+<!--     labs(x = 'position') + -->
+<!--     theme_bw() + -->
+<!--     theme(legend.position = "none",  -->
+<!--           axis.text.x = element_text(size = 7), -->
+<!--           panel.border = element_blank(), -->
+<!--           panel.grid.major.x = element_blank(), -->
+<!--           panel.grid.minor.x = element_blank() -->
+<!--     ) -->
+<!-- } -->
+<!-- ``` -->
+
+
+<!-- ### QQ plot -->
+
+<!-- This section creates the QQ plot for your association p-values. -->
+<!-- This code adapted from [a blog post by Daniel Roelfs](https://danielroelfs.com/blog/how-i-make-qq-plots-using-ggplot/)) -->
+
+<!-- ```{r QQplot} -->
+<!-- gwas_qq_plot <- function(assoc_data){ -->
+
+<!--   # set a confidence interval range -->
+<!--   ci <- 0.95 -->
+<!--   # count number of SNPs tested -->
+<!--   nSNPs <- nrow(assoc_data) -->
+
+<!--   # create a sorted vector of p-values, -->
+<!--   # use the ppoints function to get the expected distribution -->
+<!--   plotdata <- tibble( -->
+<!--     observed = sort(assoc_data$p), -->
+<!--     expected = ppoints(nSNPs), -->
+<!--     ci_lower   = qbeta(p = (1 - ci) / 2,  -->
+<!--                        shape1 = seq(nSNPs),  -->
+<!--                        shape2 = rev(seq(nSNPs))), -->
+<!--     ci_upper   = qbeta(p = (1 + ci) / 2,  -->
+<!--                        shape1 = seq(nSNPs),  -->
+<!--                        shape2 = rev(seq(nSNPs))) -->
+<!--   ) %>%  -->
+<!--     mutate_all(~ -log10(.x)) -->
+
+<!--   # make scatterplot -->
+<!--   plotdata %>%  -->
+<!--     ggplot(aes(expected, observed)) + -->
+<!--     geom_abline(intercept = 0, slope = 1, lty = 2, color = 'gray') + -->
+<!--     geom_point(shape = 1, ) + -->
+<!--     coord_equal() + -->
+<!--     theme_classic() + -->
+<!--     labs( -->
+<!--       x = expression(Expected ~ -log[10](p)), -->
+<!--       y = expression(Observed ~ -log[10](p)), -->
+<!--       title = "Q-Q plot for association model" -->
+<!--     ) -->
+<!-- } -->
+
+<!-- ``` -->
 
