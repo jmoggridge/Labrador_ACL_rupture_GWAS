@@ -56,7 +56,8 @@ https://doi.org/10.1371/journal.pone.0173810
 
     plink --bfile {my_data} --dog --options --commands --out {new_name} 
 
- Throughout this tutorial, we use the `--bfile` flag because we have bed/bim/fam files; the `--make-bed` flag to get the same type of files back; and we always have to use the `--dog` flag because dogs have 38 chromosomes and plink expects human data otherwise (for every command!).
+ Throughout this tutorial, we use the `--bfile` flag because we have bed/bim/fam files; the `--make-bed` flag to get the same type of files back; and we always have to use the `--dog` flag because dogs have 38 chromosomes and plink expects human data otherwise (for every command!).  
+For various filtering steps, plink has `--keep` and `--remove` commands for filtering individuals, while the `--extract` and `--exclude` functions do the same for variants. Each of these requires a text file with a list of identifiers, eg. <`--keep keep_list.txt`> .
 
 
 ---
@@ -162,7 +163,7 @@ We will use F-values produced by `--check-sex` (metric of X chromosome homozygos
 plink --bfile cr237_splitx --dog \
   --check-sex 0.799 0.80 
   
-grep "PROBLEM" plink.sexcheck| awk '{print$1,$2}' \
+grep "PROBLEM" plink.sexcheck | awk '{print$1,$2}' \
   > sex_discrepancy.txt
 
 wc -l sex_discrepancy.txt 
@@ -171,7 +172,7 @@ cat sex_discrepancy.txt
 
 The output tells us that 6 problems are detected with these thresholds. We plot the sex-check results in the R section below, where we see that there are some outliers in both sexes. We could make a list to remove those individuals, but Baker et al. did not filter any individuals here, so we'll do the same. 
 
-One other option is to impute the sex of ambiguous individuals (`--impute-sex)`, as shown here. As before, the thresholds are given for labelling any problem cases. We do `--check-sex` again to get the .sexcheck results.
+One other option is to impute the sex of ambiguous individuals (`--impute-sex)`, as shown here. As before, the thresholds are given for labeling any problem cases. We do `--check-sex` again to get the .sexcheck results.
 
 ```{r impute_sex, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_splitx \
@@ -181,7 +182,7 @@ plink --dog --bfile cr237_splitx \
 plink --dog --bfile cr237_splitx_impute  \
   --check-sex 0.799 0.80 
   
-grep "PROBLEM" plink.sexcheck
+grep "PROBLEM" plink.sexcheck # no more problems
 ```
 
 Or we could remove the 6 individuals with the 'PROBLEM' status using the list we made.
@@ -189,7 +190,7 @@ Or we could remove the 6 individuals with the 'PROBLEM' status using the list we
 ```{r remove_discrep, engine = 'bash', eval = F, include = T}
 plink --bfile cr237_splitx  --dog  \
   --remove sex_discrepancy.txt \
-  --make-bed --out cr237_dryad_splitx_drop
+  --make-bed --out cr237_splitx_drop
 ```
 
 We'll keep all subjects and the 6 imputed labels  (`cr237_splitx_impute`) for the next step. Perhaps the F-values for dogs can be bit more variable that the expectations outlined above which are suited to human genotype data.
@@ -257,69 +258,154 @@ These two steps removed 43 and 93 variants.
 
 We will now 'prune' the set of SNPs to get a subset consisting of loci that are in approximate linkage equilibrium. This removes a bunch of SNPs that are highly correlated and thus provide little extra information for association testing.
 
-Do this with `--indep-pairwise`, where parameters `50 5 0.2` are given to scan a window size 50 kbp, to shift the window 5 SNPs at each step,  and to use 0.2 as the multiple correlation coefficient threshold for a SNP being regressed on all other SNPs simultaneously. 
+Do this with `--indep-pairwise`, where three parameters `50 5 0.2` are given to scan a window size 50 kbp, to shift the window 5 SNPs at each step, and to use 0.2 as the pairwise $r^2$ threshold. 
 
-
-```{r, engine = 'bash', eval = F, include = T}
-# Get a list of SNPs with high correlation to 'Prune' 
+```{r prune_snps, engine = 'bash', eval = F, include = T}
 plink --bfile cr237_filter4 --dog \
   --indep-pairwise 50kb 5 0.2 --out indepSNP
 ```
 
-The `--indep-pairwise` output indepSNP.prune.in has the independent SNPs to retain and .out has the 41k excluded SNPs. We want to further remove any SNPs with heterozygosity more than 3 sd from the mean across the pruned set of SNPs. 
+The output file indepSNP.prune.in has the subset of independent SNPs to retain and .out has 41k excluded SNPs. We'll use the indepSNP.prune.in file to only consider the pruned set of SNPs in future steps (don't delete this).
 
-Use `--het` to check the heterozygosity of the independent SNPs; we can plot the distribution (see R section).
+### g. Heterozygosity
 
-```{r, engine = 'bash', eval = F, include = T}
-# Subset of pruned SNPs with --extract
-# Check the heterozygosity of these snps with --het
+Now with the pruned set of SNPs we want to remove any individuals with heterozygosity more than 3 sd from the mean. We use `--het` to check compute this statistic.
+
+```{r het_check, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_filter4 \
   --extract indepSNP.prune.in --het \
   --out prune_check
 ```
 
-We need to do some computation here to find the SNPs with heterozygosity 3 sd from the mean, which is more easily done in R. You can open the R console on graham or make a script with this code:
 
-```{r}
+
+We need to do some computation here to find the individuals that are > 3 sd away from the mean, which is more easily done in R. Open nano and make an Rscript called 'identify_het_outliers.R' with the following code.
+```{r write_het_script, engine = 'bash', eval = F, include = T}
+nano identify_het_outliers.R
+```
+
+Put the following R code into the script. It filters the results to find any individuals too far from the mean.
+
+```{r het_script_code}
 df <- read.table("./prune_check.het", header = T)
-
-df$het = (df$"N.NM." - df$"O.HOM.") / df$"N.NM."
+df$het <-  (df$"N.NM." - df$"O.HOM.") / df$"N.NM."
 mean_het <- mean(df$het)
 sd_het <- sd(df$het)
 
 fails <- subset(
   df, (df$het < mean_het - 3*sd_het) | (df$het < mean_het + 3*sd_het)
 )
-fails$dst <- (fails$het - mean_het)/sd_het
-write.table(fails, "fail-het-qc.txt", row.names = FALSE)
+fails$dst <- (fails$het - mean_het) / sd_het
+write.table(fails, "hetero_outliers.txt", row.names = FALSE)
+
 ```
 
+Save the script and exit nano. Set permissions and run the Rscript with --no-save to avoid creating any workspace files.
 
-```{r, engine = 'bash', eval = F, include = T}
-# Create a list of the outliers (>3sd from mean); remove quot marks
-Rscript --no-save ./R/heterozygosity_outliers_list.R
+```{r R_het_filter, engine = 'bash', eval = F, include = T}
+chmod u+x identify_het_outliers.R 
+Rscript --no-save identify_het_outliers.R 
+```
 
-sed 's/"// g' fail-het-qc.txt | awk '{print$1, $2}'> het_fail_ind.txt
-cat het_fail_ind.txt
+This will generate the file hetero_outliers.txt.
+We have to reformat the file with `sed` to remove the quotation marks that R adds to the header and `awk` to take only the FID and IID columns. The list then gets passed to plink `--remove` to take those individuals out.
 
-# --remove heterozygosity rate outliers using that list
-plink --bfile cr237_filter4 --dog \
-  --remove het_fail_ind.txt \
+```{r remove_het_outliers, engine = 'bash', eval = F, include = T}
+sed 's/"// g' hetero_outliers.txt | awk '{print$1, $2}' \
+  > hetero_outliers.txt
+
+plink --dog --bfile cr237_filter4 \
+  --remove hetero_outliers.txt \
   --make-bed --out cr237_filter5
-
-
 ```
 
-### g.
+Note that the list made by the Rscript is empty - we didn't have any individuals that needed to be removed but if we did, they would now be excluded.
+
+
+### h. Cryptic relatedness / Identity by descent
+
+Since an independant sample is assumed for association testing, we want to exclude any related individuals from analysis. 
+Here we examine data for individuals with high relatedness and compute the pi_hat statistic for identity by descent. Normally, we remove any individuals having 'cryptic relatedness', where `pi_hat` is greater than some threshold. In their article, Baker *et al.* don't mention doing this at all, so we may get different results by applying this filter.
+
+The `--genome` function is used to compute relation between pairs of individuals (identity by descent). The `--min` flag sets minimum PI_HAT for the output (otherwise we get all values). A PI_HAT of 1 implies identical individuals (duplicates in data), 0.5 is parent-child or siblings, 0.25 is aunt/uncle-niece/nephew. We want to scrutinize anything over 0.2 as these pairs could be related.
+
+```{r genome_pihat, engine = 'bash', eval = F, include = T}
+plink --dog --bfile cr237_filter5 \
+  --extract indepSNP.prune.in \
+  --genome  --min 0.2 \
+  --out pihat_min0.2
+  
+wc -l pihat_min0.2.genome
+```
+
+82 pairs of dogs have pi_hat > 0.2. If we were being rigorous, we'd probably want to remove one individual from each pair (see https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6001694/ for a more in-depth explanation). Otherwise, we might account for known relationships in the association model (as per Baker *et al.*) but that is beyond our scope. Here we remove one individual from a pair that are likely parent-child or siblings. 
+
+We can filter the .genome results on Z1 values to find any pairs that likely represent siblings (Z1 > 0.9) as follows:
+
+```{r siblings, engine = 'bash', eval = F, include = T}
+awk '{ if ($8 >0.9) print $0 }' pihat_min0.2.genome > \
+  siblings.genome
+cat siblings.genome
+```
+
+This pair of dogs could be siblings or parent-child based on their Z1 value. We should remove one of these individuals from our analysis, preferably the one with less missing data. 
+
+We'll reshape a list of ids from the siblings.genome file and get the missing data for these individuals
+
+```{r sib_missing, engine = 'bash', eval = F, include = T}
+grep -v "FID" siblings.genome > siblings.genome2
+awk '{print$1, $2}' siblings.genome2 | uniq > siblings.txt
+awk '{print$3, $4}' siblings.genome2 | uniq >> siblings.txt
+
+plink  --dog --bfile cr237_filter5 \
+  --keep siblings.txt \
+  --missing \
+  --out siblings 
+
+head siblings.imiss
+```
+
+We could write code to select the individual with less missing data programmatically, but since there is only one pair, we can easily tell that individual 1251 has 1% more missing data than 1250.
+Write "1251 1251" in a text file called 'drop_this.txt' and pass it to --remove to drop this individual from our data.
 
 ```{r, engine = 'bash', eval = F, include = T}
+plink --dog --bfile cr237_filter5 \
+  --remove drop_this.txt \
+  --make-bed --out cr237_filter6
+```
 
+
+
+**We are finally done filtering!**  
+
+This is a good time to download the plink.* files to your local machine for plotting.
+We generated a lot of intermediate files, so I suggest removing these to keep the workspace tidy. You can safely remove these as follows
+
+```{r, engine = 'bash', eval = F, include = T}
+for i in 1 2 3 4 5 ; do rm *_filter$i.*; done
+rm sex_discrepancy.txt snp_1_38.txt \
+  *splitx* het_fail_ind.txt hetero_outliers.txt \
+  missing2* siblings* drop_this.txt
 ```
 
 
 ---
 
-## MDS analysis
+## Multidimensional scaling
+
+If we have resources to place our study subjects within their  'ethnic' groups (eg. 1000 genomes SNPs data for human ethnicity), then we can 'anchor' our samples with this data to find out where the samples lie in relation to these groups. 
+
+This uses MDS to show distance between individuals, such that we can identify any individuals that are outliers from their groups. Because we want to do our study on a homogeneous population, we would remove any samples that deviate from the group based on a selected threshold.
+
+Since we are dealing with Labrador retrievers, we'll just perform MDS to check for any outliers. We also take the MDS components as covariates to control for any stratification in our sample
+
+For more details about anchoring your data, [click here](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6001694/), to see an example with human SNP data anchored by the 
+1000 genomes data.
+There is more information about [plink clustering options here](https://www.cog-genomics.org/plink/1.9/strat). 
+
+
+We'll use the set of files named 'cr237_filter6.*' for MDS in the following code.
+
 
 
 ---
@@ -442,7 +528,7 @@ read_delim("./MAF_check.frq", delim = ' ') %>%
 read_delim("./plink.hwe", ' ') %>% 
   janitor::clean_names() %>% 
   transmute(p = as.numeric(p)) %>% 
-  mutate(fill = ifelse(p < 1e-7, '< 1e-7', 'keep')) %>% 
+  mutate(fill = if_else(p < 1e-07, '< 1e-7', 'keep')) %>% 
   ggplot(aes(x = p, fill = fill)) +
   geom_histogram() +
   labs(x = 'p-value', y = 'SNPs', fill = '',
