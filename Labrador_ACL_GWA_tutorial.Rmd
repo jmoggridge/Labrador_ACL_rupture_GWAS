@@ -20,16 +20,16 @@ knitr::opts_chunk$set(echo = TRUE, message =F, warning = F, cache = T)
 
 This tutorial deals with performing a statistical analysis of SNP
 data for a case-control genome-wide association study using the popular and
-versatile [`plinck` toolset](https://zzz.bwh.harvard.edu/plink/index.shtml).
+versatile [`plink` toolset](https://zzz.bwh.harvard.edu/plink/index.shtml).
 We will perform quality control, exploratory analysis of data with MDS, then test for genome-wide association, and plot the results using R.
 The sample dataset is from a recent GWAS in Labrador retrievers with a relatively small number of individuals.
 
 ## Process outline:
 
- - 1 Obtain data and load modules
- - 2 QC + filtering data
- - 3 Pop stratification, MDS / clustering
- - 4 Association tests and statistics
+ -1 - Obtain data and load modules
+ -2 - QC + filtering data
+ -3 - Pop stratification, MDS / clustering
+ -4 - Association tests and statistics
 
  
 ## Dataset: 
@@ -56,15 +56,17 @@ https://doi.org/10.1371/journal.pone.0173810
 
     plink --bfile {my_data} --dog --options --commands --out {new_name} 
 
- Throughout this tutorial, we use the `--bfile` flag because we have bed/bim/fam files; the `--make-bed` flag to get the same type of files back; and we always have to use the `--dog` flag because dogs have 38 chromosomes and plink expects human data otherwise (for every command!).  
+Plink commands are run in the unix shell. Throughout this tutorial, we use the `--bfile` flag because we have bed/bim/fam files; the `--make-bed` flag to get the same type of files back; and we always have to use the `--dog` flag because dogs have 38 chromosomes and plink expects human data otherwise (for every command!).  
 For various filtering steps, plink has `--keep` and `--remove` commands for filtering individuals, while the `--extract` and `--exclude` functions do the same for variants. Each of these requires a text file with a list of identifiers, eg. <`--keep keep_list.txt`> .
 
 
 ---
 
+\newpage
+
 # Step-by-step tutorial
 
-`plink` commands are run in the unix shell. Later on we will do some plotting in R.
+All commands should be run in the unix shell. Later on we will do some plotting in R.
 
 
 ## 1 - Data and software
@@ -100,8 +102,9 @@ head cr237_dryad.fam
 There are no relatives in this dataset, so the FIDs are all the same as the IIDs, and columns 3 and 4 are all zeros. Our binary trait of interest (ACL rupture) is in column 6.   
 See the plink documentation for more info about file formats: https://www.cog-genomics.org/plink/1.9/formats (other input formats are possible, if you're working with files that don't match this pattern).
 
+\
 
-Start an srun session, then load these modules:
+**Start an srun session now**, then load these modules to get plink and R ready for the tutorial.
 
 ```{r modules, engine = 'bash', eval = F, include = T}
 module load nixpkgs/16.09 gcc/7.3.0 r/4.0.2 plink/1.9b_4.1-x86_64 
@@ -117,17 +120,19 @@ module load nixpkgs/16.09 gcc/7.3.0 r/4.0.2 plink/1.9b_4.1-x86_64
 First we'll check the amount of missing data per individual with `--missing`.
 
 ```{r missing, engine = 'bash', eval = F, include = T}
-plink --bfile cr237_dryad --missing --dog
+plink --dog --bfile cr237_dryad --missing
 ```
 
-The files .imiss .lmiss show the proportion of missing data per loci and indiv. Download these to your local machine and check the distribution if you want to adjust the thresholds. There is code for plotting these in the R section at the end of the tutorial.
+The files .imiss and .lmiss show the proportion of missing data per loci and indiv. Download these to your local machine and check the distribution if you want to adjust the thresholds. There is code for plotting these in the R section at the end of the tutorial.
 
 Here, we'll filter any SNPs that are missing >5% with `--geno`, and then we'll do the same for individuals with `--mind`. We'll constantly save our output to new files by the way, so you'll know which step was performed last for each set of files. 
 
 ```{r filter_miss, engine = 'bash', eval = F, include = T}
+# filter SNPs
 plink --dog --bfile cr237_dryad \
   --geno 0.05 \
   --make-bed --out cr237_filter1
+# filter individuals 
 plink --dog --bfile cr237_geno \
   --mind 0.05 \
   --make-bed --out cr237_filter1
@@ -141,7 +146,7 @@ You'll see that we get warnings about '25567 het. haploid genotypes', 'Nonmissin
 
 
 
-### b. Sex discrepency check
+### b. Sex discrepancy check
 
 We can use the genotype data to check whether the recorded sex for each individual makes sense (mistakes in the lab can happen). This is based on looking at SNPs on the X chromosome, but the X has a large pseudo-autosomal region that we need to ignore first (6630000 - 126883977).
 In the dog dataset we see some unusual results, so this entire step is shown as a demo and we won't delete and individuals or impute their sexes.
@@ -149,6 +154,7 @@ In the dog dataset we see some unusual results, so this entire step is shown as 
 To ignore SNPs in the canine pseudo-autosomal region of X-chromosome
 
 ```{r splitX, engine = 'bash', eval = F, include = T}
+# ignore X-chromosome PAR 
 plink --dog --bfile cr237_filter1 \
   --split-x 6630000 126883977 \
   --make-bed --out cr237_splitx
@@ -160,6 +166,7 @@ The number of heterozygous haploid genotypes decreases to 5284 as a result of up
 We will use F-values produced by `--check-sex` (metric of X chromosome homozygosity/ inbreeding) to inform us if any individuals are sexed incorrectly or ambiguously. We add arguments for the threshold for females and males to be flagged. These are set very loosely here; the default thresholds will OK males if F > 0.8 and females if F < 0.2. In visualizing F-value distributions, males should appear near 1, females more loosely distributed around 0. We make a list of flagged individuals with `grep` and `awk`.
 
 ```{r sex_check, engine = 'bash', eval = F, include = T}
+# check sex labels
 plink --bfile cr237_splitx --dog \
   --check-sex 0.799 0.80 
   
@@ -221,6 +228,7 @@ Great, we removed ~ 6k SNPs and now only have autosomal SNPs for our GWAS.
 Generally, we want a threshold of MAF > 0.05, or possibly lower but only if our sample is very large. We can use `--freq` to get the MAF statistics for all SNPs, and `--maf` to filter the dataset to a specified threshold (5%). 
 
 ```{r maf, engine = 'bash', eval = F, include = T}
+# G
 plink --bfile cr237_filter1 --dog \
   --freq --out MAF_check
 
@@ -238,21 +246,22 @@ We removed 45k SNPs with small minor allele frequency. The results from --freq (
 
 Do we have far more heterozygous calls than expected? That could mean there is systemic calling error (bad). If we have fewer heterozygotes than expected, it could be due to population stratification (also bad if not controlled). HW-equilibrium means no migration, natural selection, and/or non-random mating violations. GWAS methods assume HW-equilibrium for allele frequencies, so it is important to remove any SNPs that are far from equilibrium.
 
-First we use `--hardy` to output the HWE p-values to the file plink.hwe for plotting (see R section). Afterwards, we use `--hwe` to remove SNPs that deviate from HWE with p-value smaller than 1e-7 (as Baker *et al.* did). By default, `--hwe` only removes these based on the control group, so we repeat the call with the `--hwe-all` flag to remove them for the cases too. 
+First we use `--hardy` to output the HWE exact test p-values to the file plink.hwe for plotting (see R section). Afterwards, we use `--hwe` to remove SNPs that deviate from HWE with p-value smaller than 1e-7 (as Baker *et al.* did). By default, `--hwe` only removes these based on the control group, so we repeat the call with the `--hwe-all` flag to remove them for the cases too. 
 
 ```{r HWE, engine = 'bash', eval = F, include = T}
+# get HWE exact test values
 plink --dog --bfile cr237_filter3 --hardy 
-
+# filter by HWE in controls
 plink --dog --bfile cr237_filter3 \
   --hwe 1e-7 \
   --make-bed --out cr237_filter4
-
+# filter by HWE in cases
 plink --dog --bfile cr237_filter4 \
   --hwe 1e-7 --hwe-all \
   --make-bed --out cr237_filter4
 ```
 
-These two steps removed 43 and 93 variants.
+The two filtering steps removed 43 and 93 variants.
 
 ### f. SNP pruning
 
@@ -374,14 +383,11 @@ plink --dog --bfile cr237_filter5 \
   --make-bed --out cr237_filter6
 ```
 
+**We are finally done filtering! That took forever, right!?**  
 
+Don't worry, we are getting to the good stuff now. This is a good time to download the plink.* files to your local machine for plotting (eg. with `scp`). We generated a lot of intermediate files, so I suggest removing these to keep the work-space tidy. You can safely remove these as follows
 
-**We are finally done filtering!**  
-
-This is a good time to download the plink.* files to your local machine for plotting.
-We generated a lot of intermediate files, so I suggest removing these to keep the workspace tidy. You can safely remove these as follows
-
-```{r, engine = 'bash', eval = F, include = T}
+```{r delete_stuff, engine = 'bash', eval = F, include = T}
 for i in 1 2 3 4 5 ; do rm *_filter$i.*; done
 rm sex_discrepancy.txt snp_1_38.txt \
   *splitx* het_fail_ind.txt hetero_outliers.txt \
@@ -393,24 +399,46 @@ rm sex_discrepancy.txt snp_1_38.txt \
 
 ## Multidimensional scaling
 
-If we have resources to place our study subjects within their  'ethnic' groups (eg. 1000 genomes SNPs data for human ethnicity), then we can 'anchor' our samples with this data to find out where the samples lie in relation to these groups. 
+If we have resources to place our study subjects within their  'ethnic' groups (eg. 1000 genomes SNPs data for human ethnicity), then we can 'anchor' our samples with this data to find out where the samples lie in relation to these groups. MDS is used to display the distance between individuals, such that we can identify any individuals that are outliers from their groups. Because we want to do our GWAS on a homogeneous population, we would remove any samples that deviate from the group based on a selected threshold. For more details about anchoring your data, [click here](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6001694/) to see an example with human SNP data anchored by the 
+1000 genomes data. There is more information about other [plink clustering options here](https://www.cog-genomics.org/plink/1.9/strat). 
 
-This uses MDS to show distance between individuals, such that we can identify any individuals that are outliers from their groups. Because we want to do our study on a homogeneous population, we would remove any samples that deviate from the group based on a selected threshold.
+Since we are dealing with Labrador retrievers, we'll just perform MDS to check for any obvious outliers. We also use the MDS components as covariates to control for population stratification in some association testing. We'll use the set of files named 'cr237_filter6.*' for MDS in this step. We'll plot the MDS in R too (see R section).
 
-Since we are dealing with Labrador retrievers, we'll just perform MDS to check for any outliers. We also take the MDS components as covariates to control for any stratification in our sample
+First, calculate the identity-by-sequence distances for all pairs of individuals.
 
-For more details about anchoring your data, [click here](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6001694/), to see an example with human SNP data anchored by the 
-1000 genomes data.
-There is more information about [plink clustering options here](https://www.cog-genomics.org/plink/1.9/strat). 
+```{r MDS, engine = 'bash', eval = F, include = T}
+plink --dog --bfile cr237_filter6 \
+  --extract indepSNP.prune.in \
+  --genome --out cr237_filter6
+```
 
 
-We'll use the set of files named 'cr237_filter6.*' for MDS in the following code.
+Now do MDS clustering of individuals based on their autosomal SNP genotypes. We pass the IBS data along with `--read-genome`. Plink's
+`--cluster` does complete linkage hierarchical clustering by default,
+so we pass the `--mds-plot` flag to get MDS instead and tell it to give us the first 10 coefficients.
 
+```{r, engine = 'bash', eval = F, include = T}
+plink --dog --bfile cr237_filter6 \
+  --read-genome cr237_filter6.genome \
+  --cluster --mds-plot 10 \
+  --out cr237_filter6
+```
 
+The MDS results are in `cr237_filter6.mds`. You'll want to visualize these before moving on, so download the cr237_filter6.mds and .fam files and skip to the R section for MDS plotting. Check the results and return back to here afterwards.
 
 ---
 
 ## Association analyis
+
+
+
+```{r, engine = 'bash', eval = F, include = T}
+```
+
+```{r, engine = 'bash', eval = F, include = T}
+```
+
+
 
 ### Chi-sq test
 
@@ -430,6 +458,8 @@ We'll use the set of files named 'cr237_filter6.*' for MDS in the following code
 
 ## Visualizing the results
 
+This section covers how to plot plink results with R. I prefer to use the `ggplot2` library over base R, so I will show you how to plot plink output this way. If you prefer base R plots, then see the [Marees GWAS tutorial](https://github.com/MareesAT/GWA_tutorial/).
+
 
 ```{r libraries, include=F, eval=T}
 library(tidyverse)  # 
@@ -438,8 +468,9 @@ theme_set(theme_bw()) # this sets the base theme for all your plots
 ```
 
 
-
 ### QC: Missing data
+
+These functions plot the distribution of the proportion of missing data for individuals and SNPs from the plink.imiss and plink.lmiss files (from QC step 'a').
 
 ```{r missing_hist, fig.width=6, fig.height=3}
 # plots histogram of missing data for individuals from .imiss file
@@ -481,6 +512,8 @@ indiv + snps
 
 ### QC: The Sex-check
 
+This will plot the F-values from the plink.sexcheck results created in QC step 'b'.
+
 ```{r sex_check_hist, fig.height=3, fig.width=4.5}
 
 # plots plink --sex-check results
@@ -511,7 +544,11 @@ read_delim("./plink.sexcheck", delim = ' ') %>%
     Outliers could be labelled incorrectly in the input data"
     ) 
 ```
+
+
 ### Minor allele frequency from plink --freq
+
+This plots the distribution of MAF from MAF_check.frq results obtained in QC step 'd'.
 
 ```{r maf_hist}
 read_delim("./MAF_check.frq", delim = ' ') %>% 
@@ -524,7 +561,9 @@ read_delim("./MAF_check.frq", delim = ' ') %>%
 
 ### HWE
 
-```{r}
+This plots the distribution of HWE exact test p-values from QC step 'e'.
+
+```{r HWE_plot}
 read_delim("./plink.hwe", ' ') %>% 
   janitor::clean_names() %>% 
   transmute(p = as.numeric(p)) %>% 
@@ -533,5 +572,82 @@ read_delim("./plink.hwe", ' ') %>%
   geom_histogram() +
   labs(x = 'p-value', y = 'SNPs', fill = '',
        subtitle = "Hardy-Weinberg equilibrium test")
+```
+
+
+
+### MDS Plots
+
+These functions create a 2d plot of the MDS (`gwas_mds1()`), and a multipanel plot of the first 5 components (`gwas_mds2`). These require joined the .mds and .fam data as you will see below.
+
+```{r}
+# Plot the first 2 components of the MDS analysis
+gwas_mds1 <- function(mds_data){
+  dogs %>% 
+    ggplot(aes(c1, c2, color = phenotype, shape = sex)) +
+    geom_point() +
+    theme_minimal() +
+    theme(panel.grid = element_blank(), 
+          panel.border = element_rect(color = 'black', 
+                                      size = 0.5, fill = NA)) +
+    labs(x = 'MDS1', y = 'MDS2', 
+         subtitle = paste("Metric multidimensional scaling of",
+                          nrow(dogs),"dog genotypes"))
+}
+# Plot multiple MDS components in pairs
+gwas_mds2 <- function(mds_data){
+  ggpairs(
+    dogs, columns = (4:8),
+    mapping = aes(color = phenotype),
+    diag = list(continuous = wrap("densityDiag", alpha=0.5, size=0)),
+    upper = list(continuous = wrap("density", alpha = 0.6),
+                 combo = "box_no_facet"),
+    lower = list(continuous = wrap("points", alpha = 0.6, size=0.4), 
+                 combo = wrap("dot", alpha = 0.4, size=0.2)),
+    legend = c(5,5)) +
+    theme_classic() +
+    theme(legend.position = "bottom")
+}
+
+
+```
+
+```{r}
+# read and tidy up the mds coordinates
+mds <- 
+  read_delim("cr237_dryad_8.mds", delim = ' ') %>% 
+  janitor::clean_names() %>% 
+  mutate(across(c1:c10,  as.numeric)) %>% 
+  select(id = iid, c1:c10)
+
+# tidy up phenotype data, then join with mds components
+dogs <- 
+  read_delim("cr237_dryad_8.fam", delim = ' ', 
+             col_names = paste0('X', 1:6)) %>% 
+  # recode variables
+  transmute(id = X1,
+            sex = if_else(X5 == 1, 'M', 'F'),
+            phenotype = case_when(
+              X6 == 1 ~ 'Control', 
+              X6 == 2 ~ 'ACL rupture', 
+              TRUE ~ 'Missing')
+  ) %>% 
+  mutate_if(is_character, as_factor) %>% 
+  # combine .fam and .mds data by id
+  right_join(mds, by = 'id')
+```
+
+
+```{r}
+# a 2d MDS plot
+fig1_gwas_mds1 <- gwas_mds1(dogs)
+fig1_gwas_mds1
+```
+
+
+```{r}
+# multiple pairwise
+fig1_gwas_mds2 <- gwas_mds2(dogs)
+fig1_gwas_mds2
 ```
 

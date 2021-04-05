@@ -164,6 +164,14 @@ dogs <-
   # combine .fam and .mds data by id
   right_join(mds, by = 'id')
 
+# a 2d MDS plot
+fig1_gwas_mds1 <- gwas_mds1(dogs)
+fig1_gwas_mds1
+
+# multiple pairwise
+fig1_gwas_mds2 <- gwas_mds2(dogs)
+fig1_gwas_mds2
+
 
 # parse logistic regression results
 logistic <- 
@@ -182,13 +190,7 @@ logistic %>%
   kableExtra::kable(format = 'simple')
 
 
-# a 2d MDS plot
-fig1_gwas_mds1 <- gwas_mds1(dogs)
-fig1_gwas_mds1
 
-# multiple pairwise
-fig1_gwas_mds2 <- gwas_mds2(dogs)
-fig1_gwas_mds2
 
 #### Manhattan plot of association p-values ####
 
