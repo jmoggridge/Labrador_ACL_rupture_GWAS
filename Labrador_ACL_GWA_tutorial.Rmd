@@ -385,7 +385,7 @@ plink --dog --bfile cr237_filter5 \
 
 **We are finally done filtering! That took forever, right!?**  
 
-Don't worry, we are getting to the good stuff now. This is a good time to download the plink.* files to your local machine for plotting (eg. with `scp`). We generated a lot of intermediate files, so I suggest removing these to keep the work-space tidy. You can safely remove these as follows
+Don't worry, we are getting to the good stuff now. This is a good time to download the plink.* files to your local machine for plotting (eg. with `scp`). We generated a lot of intermediate files, so I suggest removing these to keep the work-space tidy. You can safely remove these as follows:
 
 ```{r delete_stuff, engine = 'bash', eval = F, include = T}
 for i in 1 2 3 4 5 ; do rm *_filter$i.*; done
@@ -406,7 +406,7 @@ Since we are dealing with Labrador retrievers, we'll just perform MDS to check f
 
 First, calculate the identity-by-sequence distances for all pairs of individuals.
 
-```{r MDS, engine = 'bash', eval = F, include = T}
+```{r IBS, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_filter6 \
   --extract indepSNP.prune.in \
   --genome --out cr237_filter6
@@ -417,14 +417,39 @@ Now do MDS clustering of individuals based on their autosomal SNP genotypes. We 
 `--cluster` does complete linkage hierarchical clustering by default,
 so we pass the `--mds-plot` flag to get MDS instead and tell it to give us the first 10 coefficients.
 
-```{r, engine = 'bash', eval = F, include = T}
+```{r MDS, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_filter6 \
   --read-genome cr237_filter6.genome \
   --cluster --mds-plot 10 \
   --out cr237_filter6
 ```
 
-The MDS results are in `cr237_filter6.mds`. You'll want to visualize these before moving on, so download the cr237_filter6.mds and .fam files and skip to the R section for MDS plotting. Check the results and return back to here afterwards.
+The MDS results are in `cr237_filter6.mds`. You'll want to visualize these before moving on, so download the cr237_filter6.mds and .fam files and skip to the R section for MDS plotting. Check the results and return back to here afterwards. In the first two MDS components we can vaguely see two groups, but no individuals are extremely far from the cloud. 
+
+We don't *need* to, but we could exclude the couple controls that
+are around -0.1 in coefficient 2 as an example:
+
+```{r MDS_filter, engine = 'bash', eval = F, include = T}
+# Using awk to exclude them from the list
+awk '{ if ($5 >-0.07) print $1,$2 }' cr237_filter6.mds \
+  > cr237_filter6_strat
+
+# To only keep the individuals within MDS thresholds
+plink --dog --bfile cr237_filter6 \
+  --keep cr237_filter6_strat \
+  --make-bed --out cr237_filter6_strat
+```
+
+You can see that this removed those few distant dogs. However we don't really need to do this (they aren't that distant) and we don't have any other data to reference against here (eg. other dog breeds to anchor our Labs). Removing individuals also decreases our statistical power (and we'd have to redo the MDS!).
+
+Finally, we want to reformat the .mds file to a plink covariate file that we'll use to control for population stratification in the association analysis. 
+
+```{r MDS_covars, engine = 'bash', eval = F, include = T}
+awk '{print$1, $2, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13}' \
+  cr237_dryad_8.mds > covar_mds.txt
+head covar_mds.txt
+```
+
 
 ---
 
@@ -432,8 +457,6 @@ The MDS results are in `cr237_filter6.mds`. You'll want to visualize these befor
 
 
 
-```{r, engine = 'bash', eval = F, include = T}
-```
 
 ```{r, engine = 'bash', eval = F, include = T}
 ```
@@ -580,7 +603,7 @@ read_delim("./plink.hwe", ' ') %>%
 
 These functions create a 2d plot of the MDS (`gwas_mds1()`), and a multipanel plot of the first 5 components (`gwas_mds2`). These require joined the .mds and .fam data as you will see below.
 
-```{r}
+```{r mds_plots}
 # Plot the first 2 components of the MDS analysis
 gwas_mds1 <- function(mds_data){
   dogs %>% 
@@ -608,21 +631,21 @@ gwas_mds2 <- function(mds_data){
     theme_classic() +
     theme(legend.position = "bottom")
 }
-
-
 ```
 
-```{r}
+Change the file names here if necessary.
+
+```{r mds_data}
 # read and tidy up the mds coordinates
 mds <- 
-  read_delim("cr237_dryad_8.mds", delim = ' ') %>% 
+  read_delim("cr237_filter6.mds", delim = ' ') %>% 
   janitor::clean_names() %>% 
   mutate(across(c1:c10,  as.numeric)) %>% 
   select(id = iid, c1:c10)
 
 # tidy up phenotype data, then join with mds components
 dogs <- 
-  read_delim("cr237_dryad_8.fam", delim = ' ', 
+  read_delim("cr237_filter6.fam", delim = ' ', 
              col_names = paste0('X', 1:6)) %>% 
   # recode variables
   transmute(id = X1,
@@ -637,15 +660,18 @@ dogs <-
   right_join(mds, by = 'id')
 ```
 
+In the first two MDS components we can vaguely see two groups,
+but no individuals are extremely far from the cloud. 
 
-```{r}
+```{r make_mds1}
 # a 2d MDS plot
 fig1_gwas_mds1 <- gwas_mds1(dogs)
 fig1_gwas_mds1
 ```
 
+You may want to check for outliers in multiple MDS components.
 
-```{r}
+```{r make_mds2}
 # multiple pairwise
 fig1_gwas_mds2 <- gwas_mds2(dogs)
 fig1_gwas_mds2
