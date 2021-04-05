@@ -193,7 +193,7 @@ plink --bfile cr237_hwe_filter_step1 --hwe 1e-7 --dog \
 # 115703 variants and 237 dogs pass filters and QC.
 
 
-### 5: Linkage Disequilibrium & Pruning ###########################
+### 6: Linkage Disequilibrium & Pruning ###########################
 
 # 'We will 'prune' the set of SNPs with `--indep-pairwise`
 # to get a subset consisting of loci that are
