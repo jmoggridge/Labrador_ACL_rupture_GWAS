@@ -293,10 +293,11 @@ head plink.imiss
 
 
 # The end of QC filtering steps
+# This is a good time to download the plink.* results to your local
+# machine for plotting
 
-
-# download all the plots and data of interest 
-# tidy up workspace
+# There are a lot of intermediate files, so I suggest to 
+# remove intermediate files from filtering
 for i in 2 3 4 5 6 7; do rm -i *dryad_$i.*; done
 rm *_dryad_3b*
 rm *_hwe_filter*
@@ -385,7 +386,7 @@ head covar_mds.txt
 ## For more info:
 # https://www.cog-genomics.org/plink/1.9/assoc
 
-## 1df chi-square allelic test for binary traits (--assoc)
+## 1-df chi-square allelic test for binary traits (--assoc)
 #  without correction for MDS covariates (bad)
 plink --bfile cr237_dryad_8 --dog \
   --extract indepSNP.prune.in \
@@ -393,12 +394,12 @@ plink --bfile cr237_dryad_8 --dog \
 head result1.assoc 
 
 
-# Logistic regression (--logistic) for binary trait with 
-# 10 principal components. We include MDS components by providing
-# our list in covar_mds.txt to the `--covar` parameter
-# from. Option --hide-covar shows only additive results (not the
+# Logistic regression (--logistic) for binary trait.
+# We include MDS components as covariates by providing
+# our list in covar_mds.txt to the `--covar` parameter.
+# Use the option --hide-covar shows only additive results (not the
 # tests against all the covariates)
-# --extract is providing the pruned SNP subset indices
+# --extract used to limit data to the pruned SNPs only ? any difference??
 
 plink --bfile cr237_dryad_8 --dog \
   --extract indepSNP.prune.in \
@@ -417,9 +418,74 @@ awk '/'NA'/' result2.assoc.logistic | wc -l
 awk '!/'NA'/' result2.assoc.logistic  > result2.assoc.logistic
 
 
-
-# This file gives a Bonferroni corrected p-value, along with FDR and others.
+# We can do various other methods of multiple testing:
+# Adjusted, Bonferroni, Holm, Sidak, and FDR stats can be obtained by
+# calling --assoc with the --adjust flag
 plink --bfile cr237_dryad_8 --dog \
   -assoc --adjust \
   --out result_adjusted
+
+# see the two files, one has the Chi^2 tests, the other has corrected
+# p-values by various methods and is sorted by significance.
+head result_adjusted.assoc
+head result_adjusted.assoc.adjusted
+  
+# Note: there aren't (any) significant results after some
+# corrections. Baker et al. note that Bonferroni correction
+# might be too stringent given that dogs have many SNPs that are
+# inherited in haplotype blocks due to extensive linkage disequilibrium.
+
+
+
+## Permutation - 
+# This involves randomly permuting the phenotypes to get 
+# an estimate significance empirically (like bootstrapping)
+# Go here learn more: https://zzz.bwh.harvard.edu/plink/perm.shtml
+# Output has fields:
+# CHR     Chromosome
+# SNP     SNP ID
+# STAT    Test statistic
+# EMP1    Empirical p-value (adaptive)
+# NP      Number of permutations performed for this SNP
+
+# EMP2 gives the multiple testing corrected p-values.
+
+# Perform 1M perrmutations.
+plink --bfile cr237_dryad_8 --dog \
+  --assoc --model mperm=1000000 \
+  --out result_perm_1M
+
+# Order your data, from lowest to highest p-value.
+sort -gk 4 result_perm_1M.assoc.mperm > sorted_subset.txt
+
+# Check results out
+head sorted_subset.txt
+
+
+
+# FYI - this will be the most computationally intensive step and will take
+# at least tens of minutes. Once started, it's a good time to run some 
+# of the R code included with this tutorial to see the data we
+# have generated already.
+
+# The Rscript can be run interactively, or with source('<filename>').
+# It will save .rds files for each figure that you can then view by
+# calling read.rds('<fig_filename>') in the R console or in an rmarkdown. 
+# Figures are ggplot2 objects, so elements of the plot appearance can 
+# be customized. 
+
+
+
+
+# Epilogue: Polygenic risk scores
+
+# https://choishingwan.github.io/PRS-Tutorial/plink/
+
+# We can use the results of the association analysis to calculate 
+# a polygenic risk score for each individual based on their genotypes.
+# This requires ...
+  
+
+
+
 

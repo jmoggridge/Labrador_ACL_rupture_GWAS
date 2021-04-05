@@ -9,89 +9,56 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE, messages = FALSE)
 ```
 
-Datadryad: https://datadryad.org/stash/dataset/doi:10.5061/dryad.8kk06
-DOI: doi:10.5061/dryad.8kk06 -> escape /: doi%10.5061%dryad.8kk06
 
-Usage Notes
-cr237_dryad.fam
-Plink binary format fam file for 237 Labrador retrievers phenotyped for ACL rupture. 1= unaffected, 2 = affected
-cr237_dryad.bed
-Plink binary format .bed file for 237 labrador retrievers phenotyped for ACL rupture
-cr237_dryad.bim
-Plink binary format .bim file for 237 Labrador retrievers phenotyped for ACL rupture
+### Overview:
 
-<!-- 1. Big Data:  -->
-
-<!--  - You'll need the entire genome (obviously)  -->
-<!--  - You'll need potentially thousands of individuals -->
-<!--  - Lots of potential for spurious correlation -->
-
-<!--  \*.bed. \*.bim, \*.map files, with genotype, variant, and position data -->
-
-<!-- 2. So much filtering! -->
-
-<!--  - Get rid of relatives or 'cryptic relatedness' -->
-<!--  - Minor allele frequency -->
-<!--  - HWE -->
-
-<!-- 3. A million $X^2$ tests (for classification) -->
-
-<!--  - Each position is modeled, coefficient and a p-value per SNP -->
-<!--  - But so many tests means likely to find spurious correlation -->
-
-<!-- 4. Computationally expensive -->
-<!--  - Fitting a lot of models -->
-<!--  - Often imputing data -->
-
-<!-- 4. That classic GWAS plot -->
-<!--  -  -->
-
-<!-- 5. You just can't stop, can you -->
-
-<!--  - Pathway analysis -->
-
- 
+This tutorial deals with performing a statistical analysis of SNP
+data for a case-control genome-wide association study using 'plinck'.
 
 
-Data:
- - `HapMap_3_r3_1.bed`: binary ?? file
- - `HapMap_3_r3_1.bim`: this has our snpnames and genotypes
- - `HapMap_3_r3_1.fam`: has relationship info
+### Process outline:
 
-
-
-Steps:
-
- - Filter data (`plink`)
+ - QC + filter data
       - 1 Loci and subjects by missing data
       - 2 Sex discrepency: delete or imputed
       - 3 bfile of autosomal snps with maf > threshold
       - 4 Hardy-Weinberg equilibrium p-value filter
       - 5 Pruning
-      - 6 Pop stratification
+  - Pop stratification, MDS / clustering
+  - Association tests and statistics
+  - Further possiblilities
  
- 
-<!-- ## figure out what this means: -->
-<!-- # Before main variant filters, 112 founders and 53 nonfounders present. -->
+### Dataset:
+
+Dataset Source: https://datadryad.org/stash/dataset/doi:10.5061/dryad.8kk06
+
+Files:
+ - `HapMap_3_r3_1.bed`: has genotypes
+ - `cr237_dryad.bim`: has info about each variant
+ - `cr237_dryad.fam`: has phenoytpe info (human-readable)
+
+
+
+# Step by step tutorial
 
 First, clone the repository for the tutorial, then copy the HTTP tags an paste it in as the github link when creating a new R project with version control:
 The original authors repo is at https://github.com/MareesAT/GWA_tutorial and the paper describing it is here: .
 
-```{r, engine='bash', eval = 'FALSE'}
+```{download engine='bash',  include = TRUE, eval = FALSE}
 # GWA tutorial script 1
 git clone https://github.com/jmoggridge/GWA_tutorial
 cd GWA_tutorial/
 ```
 
 
-```{r, engine='bash', eval = 'FALSE'}
+```{download engine='bash',  eval = 'FALSE'}
 # now, setup an interactive session
 # srun --pty --account {my-account-name} –mem=16G -N 1 -n 6 -t 0-01:30 /bin/bash
 srun --pty --account def-nricker --mem=16G -N 1 -n 6 -t 0-01:30 /bin/bash
 ```
 
 
-```{r, engine='bash', eval = 'FALSE'}
+```{download engine='bash',  eval = 'FALSE'}
 # load modules plink and r (with dependencies on graham)
 module load nixpkgs/16.09 gcc/7.3.0 r/4.0.2 plink/1.9b_4.1-x86_64 
 # unzip first tutorial
@@ -232,7 +199,7 @@ Filtering based on F value which is related to X chromosome homozygosity / inbre
 <!-- # Subjects who do not fulfil these requirements are flagged "PROBLEM" -->
 <!-- # by PLINK. -->
 
-```{r, engine='bash'}
+```{r, engine='bash', eval = 'FALSE'}
 plink --bfile HapMap_3_r3_3 --check-sex 
 grep "PROBLEM" plink.sexcheck
 ```
@@ -243,7 +210,8 @@ grep "PROBLEM" plink.sexcheck
 
 This is flagged for removal later.
 
-```{r, engine='bash'}
+```{r, ```{r, engine='bash', eval = 'FALSE'}
+='bash'}
 # Generate plots to visualize the sex-check results.
 Rscript gender_check.R
 # > Gender_check.pdf Men_check.pdf Women_check.pdf
@@ -277,7 +245,7 @@ Rscript gender_check.R
 <!-- # generate the bfile hapmap_r23a_6, this file we will use  -->
 <!-- # in the next step of this tutorial. -->
 
-```{r, engine='bash'}
+```{r, engine='bash', eval = 'FALSE'}
 # 1) Delete individuals with sex discrepancy.
 # This command generates a list of individuals with the status ?PROBLEM?.
 grep "PROBLEM" plink.sexcheck| awk '{print$1,$2}'> sex_discrepancy.txt
@@ -303,7 +271,7 @@ Filter .bed file to autosomal SNPs only and delete SNPs with low MAF.
 For this GWAS we aren't interested in sex-linked traits.
 Generally, we want a threshold of MAF > 0.05, or possibly lower if our sample is large.
 
-```{r, engine='bash'}
+```{r, engine='bash', eval = 'FALSE'}
 # extract all snps that are on chromosomes 1-22, not 25 (mitochondrial)
 awk '{ if ($1 >= 1 && $1 <= 22) print $2 }' HapMap_3_r3_6.bim > snp_1_22.txt
 
@@ -346,7 +314,7 @@ Plot the distribution of HWE p-values for SNPs. (plink.hwe output)
 <!-- # Theoretical background for this step is given in our accompanying article: -->
 <!-- # https://www.ncbi.nlm.nih.gov/pubmed/29484742 . -->
 
-```{r, engine='bash'}
+```{r, engine='bash', eval = 'FALSE'}
 # compute HWE
 plink --bfile HapMap_3_r3_6 --hardy
 # output: plink.hwe
@@ -402,7 +370,7 @@ Prune SNPs to only consider uncorrelated loci (requires an input file of LD regi
 Filtering individuals with heterozygosity that deviates from the mean.
 
 
-```{r, engine='bash', eval = FALSE}
+```{r, engine='bash', eval = 'FALSE'}
 cat inversion.txt
 # Note, don't delete the file indepSNP.prune.in, we will use this file in later steps of the tutorial.
 plink --bfile HapMap_3_r3_7 --exclude inversion.txt --range --indep-pairwise 50 5 0.2 --out indepSNP
@@ -441,7 +409,7 @@ plink --bfile HapMap_3_r3_9 --remove het_fail_ind.txt --make-bed --out HapMap_3_
 
 
 
-```{r, engine='bash', eval = FALSE}
+```{r, engine='bash', eval = 'FALSE'}
 # Check for relationships between individuals with a pihat > 0.2.
 plink --bfile HapMap_3_r3_10 --extract indepSNP.prune.in --genome --min 0.2 --out pihat_min0.2
 
@@ -481,7 +449,7 @@ nano 0.2_low_call_rate_pihat.txt
 
 In case of multiple 'related' pairs, the list generated above can be extended using the same method as for our lone 'related' pair.
 
-```{r, engine='bash', eval = FALSE}
+```{r, engine='bash', eval = 'FALSE'}
 # Delete the individuals with the lowest call rate in 'related' pairs with a pihat > 0.2 
 plink --bfile HapMap_3_r3_11 --remove 0.2_low_call_rate_pihat.txt --make-bed --out HapMap_3_r3_12
 ```
@@ -538,5 +506,4 @@ This is all a bit of a pain, but the download is very fast.
  
 - What is there?
 
-```
 

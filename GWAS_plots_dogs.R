@@ -184,10 +184,11 @@ logistic %>%
 
 # a 2d MDS plot
 fig1_gwas_mds1 <- gwas_mds1(dogs)
+fig1_gwas_mds1
 
 # multiple pairwise
 fig1_gwas_mds2 <- gwas_mds2(dogs)
-
+fig1_gwas_mds2
 
 #### Manhattan plot of association p-values ####
 
@@ -205,10 +206,15 @@ fig3_manhattan <- gwas_manhattan_plot(logistic, snpsOfInterest) +
 # Plot the q-q plot for the same p-values data as the manhattan
 fig4_qq <- gwas_qq_plot(logistic)
 
+# We can also read in the adjusted test results.
+# Genomic-control corrected p-values are in the 'gc' column
+adjusted <- read_delim("./result_adjusted.assoc.adjusted", delim = ' ')  %>%
+  janitor::clean_names() %>% 
+  mutate(across(.cols = !contains('snp'), as.numeric))
 
-read_delim("./result_adjusted.assoc.adjusted")
-
-
+glimpse(adjusted)
+head(adjusted)
+logistic %>% arrange(p) %>% head()
 
 ### write files
 
@@ -220,3 +226,23 @@ write_rds(fig3_manhattan, "Figure3_mahattan.rds")
 read_rds("Figure1_mds1.rds")
 read_rds("Figure2_mds2.rds")
 read_rds("Figure3_mahattan.rds")
+
+
+# 
+# dogs <- 
+#   read_delim("cr237_dryad.fam", delim = ' ', 
+#              col_names = paste0('X', 1:6)) %>% 
+#   # recode variables
+#   transmute(id = X1,
+#             sex = if_else(X5 == 1, 'M', 'F'),
+#             phenotype = case_when(
+#               X6 == 1 ~ 'Control', 
+#               X6 == 2 ~ 'ACL rupture', 
+#               TRUE ~ 'Missing')
+#   ) %>% 
+#   mutate_if(is_character, as_factor) 
+# 
+# dogs %>% count()
+# dogs %>% 
+#   group_by(phenotype) %>% 
+#   count()
