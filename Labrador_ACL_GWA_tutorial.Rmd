@@ -26,10 +26,10 @@ The sample dataset is from a recent GWAS in Labrador retrievers with a relativel
 
 ## Process outline:
 
- -1 - Obtain data and load modules
- -2 - QC + filtering data
- -3 - Pop stratification, MDS / clustering
- -4 - Association tests and statistics
+ - 1 - Obtain data and load modules
+ - 2 - QC + filtering data
+ - 3 - Pop stratification, MDS / clustering
+ - 4 - Association tests and statistics
 
  
 ## Dataset: 
@@ -57,7 +57,8 @@ https://doi.org/10.1371/journal.pone.0173810
     plink --bfile {my_data} --dog --options --commands --out {new_name} 
 
 Plink commands are run in the unix shell. Throughout this tutorial, we use the `--bfile` flag because we have bed/bim/fam files; the `--make-bed` flag to get the same type of files back; and we always have to use the `--dog` flag because dogs have 38 chromosomes and plink expects human data otherwise (for every command!).  
-For various filtering steps, plink has `--keep` and `--remove` commands for filtering individuals, while the `--extract` and `--exclude` functions do the same for variants. Each of these requires a text file with a list of identifiers, eg. <`--keep keep_list.txt`> .
+For various filtering steps, plink has `--keep` and `--remove` commands for filtering individuals, while the `--extract` and `--exclude` functions do the same for variants. Each of these requires a text file with a list of identifiers, eg. <`--keep keep_list.txt`> . 
+This tutorial can only provide a short explanation of each function and the parameters used, but you will certainly want more information: check out the (plink manual)[https://zzz.bwh.harvard.edu/plink/reference.shtml] to get more insight into each function as you work your way through the example here.
 
 
 ---
@@ -228,11 +229,11 @@ Great, we removed ~ 6k SNPs and now only have autosomal SNPs for our GWAS.
 Generally, we want a threshold of MAF > 0.05, or possibly lower but only if our sample is very large. We can use `--freq` to get the MAF statistics for all SNPs, and `--maf` to filter the dataset to a specified threshold (5%). 
 
 ```{r maf, engine = 'bash', eval = F, include = T}
-# G
+# Get the minor allele frequencies for each SNP
 plink --bfile cr237_filter1 --dog \
   --freq --out MAF_check
 
-# Remove SNPs with MAF frequency <5%
+# Remove SNPs with MAF < 5%
 plink --bfile cr237_filter2 --dog \
   --maf 0.05 \
   --make-bed --out cr237_filter3
@@ -377,7 +378,7 @@ head siblings.imiss
 We could write code to select the individual with less missing data programmatically, but since there is only one pair, we can easily tell that individual 1251 has 1% more missing data than 1250.
 Write "1251 1251" in a text file called 'drop_this.txt' and pass it to --remove to drop this individual from our data.
 
-```{r, engine = 'bash', eval = F, include = T}
+```{r filter6, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_filter5 \
   --remove drop_this.txt \
   --make-bed --out cr237_filter6
@@ -456,18 +457,19 @@ head covar_mds.txt
 
 ## Association analyis
 
-#### For more info about association testing with plink see:
-https://www.cog-genomics.org/plink/1.9/assoc
 
+Association testing for a binary trait (ACL rupture in our case) compares the allele frequencies between the case and control groups. There are many tests for many parameters, so you should definitely visit the [plink association analysis](https://www.cog-genomics.org/plink/1.9/assoc) page to learn more.
 
 ### Testing with `--assoc`
 
-We first do simple Chi-squared test with one degree of freedom using the `--assoc` function. It's important to note that this testing does not include correction for the MDS covariates (which is undesirable).
+We first do simple a Chi-squared test with one degree of freedom using the `--assoc` function, with `--ci 0.95` added so that we also get the 95% CI on the odds ratio (OR) for each SNP.  It's important to note that this testing method does not include correction for the MDS covariates (which is undesirable).
 
-```{r, engine = 'bash', eval = F, include = T}
+```{r assoc, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_filter6 \
   --extract indepSNP.prune.in \
-  --assoc --out result1
+  --assoc --ci 0.95\
+  --out result1
+  
 head result1.assoc
 ```
 
@@ -476,9 +478,9 @@ We can see that this gets us the Chi-sq, p-value, and odds ratio statistics for 
 
 We can also get various corrections for multiple testing: adjusted, Bonferroni, Holm, Sidak, and FDR stats can be obtained by calling `--assoc` with the `--adjust` flag. We get an extra file '*.assoc.adjusted' with the output.
 
-```{r, engine = 'bash', eval = F, include = T}
+```{r assoc_adj, engine = 'bash', eval = F, include = T}
 plink --bfile cr237_filter6 --dog \
-  -assoc --adjust \
+  -assoc --adjust --ci 0.95 \
   --out result_adjusted
 
 # see the two files, one has the Chi^2 tests, the other has corrected
@@ -492,47 +494,42 @@ Note: there aren't any (!) significant results after some corrections. Baker *et
 
 ### Testing with `--logisitic`
 
-We do want to take the MDS covariates into account in our model though and the --assoc function doesn't do this.  We can do this with plink's `--logistic` function that fits a logistic regression model to the data with the MDS components as covariates (passed with `--covar`). We also provide the `--hide-covar` flag to only get the results for the SNPs (not the MDS covariates).
+We *do* want to take the MDS covariates into account and the --assoc function doesn't do this, so we can use plink's `--logistic` function to do logistic regression with the MDS components included as covariates (passed with `--covar`). We also provide the `--hide-covar` flag to only get the results for the SNPs (not the MDS covariates).
 
-```{r, engine = 'bash', eval = F, include = T}
-plink --dog  --bfile cr237_filter6 \
+```{r logistic, engine = 'bash', eval = F, include = T}
+plink --dog --bfile cr237_filter6 \
   --extract indepSNP.prune.in \
   --covar covar_mds.txt \
-  --logistic \
+  --logistic --ci 0.95 \
   --hide-covar \
   --out result2
 
 head result2.assoc.logistic 
-
 # Check if there are any NA values in the results
 awk '/'NA'/' result2.assoc.logistic | wc -l 
 # Remove any NA values from results
 awk '!/'NA'/' result2.assoc.logistic  > result2.assoc.logistic
 ```
 
-DONE UP TO HERE!!!
-
+At this stage, you'll want to check out a Manhattan plot of the association p-values - but get the permutation running first! Then you'll have some time (~30mins) on your hands to go to the R section and do the Manhattan plot.
 
 ### Permutation testing
 
+This involves randomly permuting the phenotypes to get estimates of  significance empirically and as such it is computationally intensive but has some desirable properties for test. This is a general procedure and various tests can be applied in this framework; [go here learn more](https://zzz.bwh.harvard.edu/plink/perm.shtml) about the different uses of plink --perm. For more background, see this [article by Che *et al.*](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4070098/).
 
-```{r, engine = 'bash', eval = F, include = T}
-# This involves randomly permuting the phenotypes to get 
-# an estimate significance empirically (like bootstrapping)
-# Go here learn more: https://zzz.bwh.harvard.edu/plink/perm.shtml
-# Output has fields:
-# CHR     Chromosome
-# SNP     SNP ID
-# STAT    Test statistic
-# EMP1    Empirical p-value (adaptive)
-# NP      Number of permutations performed for this SNP
+In the context of our dataset (small size, possibly contains relatives since we did not filter based on pi_hat), permutation is an attractive option to avoid some of the assumptions of ANOVA testing. Here we do 1 million permutations of the genotypes with the `--assoc` flag and `--model` specified as `mperm` with our number of repeats. 
+This will invoke the max(T) algorithm rather than the adaptive one.
+You may set the `--seed` to any large integer so that you get the same results (there is randomness otherwise).
 
-# EMP2 gives the multiple testing corrected p-values.
+
+```{r perm, engine = 'bash', eval = F, include = T}
 
 # Perform 1M perrmutations.
-plink --bfile cr237_dryad_8 --dog \
-  --assoc --model mperm=1000000 \
+plink --bfile cr237_filter6 --dog \
+  --seed 6377474 \
+  --assoc --mperm 1000000 --ci 0.95 \
   --out result_perm_1M
+  
 
 # Order your data, from lowest to highest p-value.
 sort -gk 4 result_perm_1M.assoc.mperm > sorted_subset.txt
@@ -542,30 +539,8 @@ head sorted_subset.txt
 ```
 
 
-```{r, engine = 'bash', eval = F, include = T}
-# FYI - this will be the most computationally intensive step and will take
-# at least tens of minutes. Once started, it's a good time to run some 
-# of the R code included with this tutorial to see the data we
-# have generated already.
+FYI - this will be the most computationally intensive step and will take at least tens of minutes (much longer if your dataset is large). Once it has started, it's a good time to run some of the R code included with this tutorial to explore the data we have generated already. 
 
-# The Rscript can be run interactively, or with source('<filename>').
-# It will save .rds files for each figure that you can then view by
-# calling read.rds('<fig_filename>') in the R console or in an rmarkdown. 
-# Figures are ggplot2 objects, so elements of the plot appearance can 
-# be customized. 
-
-
-```
-
-
-
-### Chi-sq test
-
-### Logistic regression model
-
-### Adjusted statistics
-
-### Permutation
 
 ---
 
@@ -580,7 +555,9 @@ You're now a pro at using plink and you're ready to start exploring more GWAS me
 
 ## Visualizing the results
 
-This section covers how to plot plink results with R. I prefer to use the `ggplot2` library over base R, so I will show you how to plot plink output this way. If you prefer base R plots, then see the [Marees GWAS tutorial](https://github.com/MareesAT/GWA_tutorial/).
+This section covers how to plot plink results with R. I prefer to use the `ggplot2` library over base R, so I will show you how to plot plink output this way. If you prefer base R plots, then see the [Marees GWAS tutorial](https://github.com/MareesAT/GWA_tutorial/). 
+
+The data from plink are fairly easy to work with but have an usual space-delimited format and the column names have white-space when they are read in. I like the `janitor::clean_names()` function to make them all lowercase names. The functions here can be fed any data of the right type, though you may want to adjust the plot layers if your data are very different from the Labradors example. Since the figures are ggplot2 objects, you can easily customize plot appearance to your liking with the usual ggplot2 stuff: theme_\*(), theme(), labs(), *etc*. 
 
 Install the following packages if you don't already have them (with `install.packages()`)
 
@@ -588,6 +565,7 @@ Install the following packages if you don't already have them (with `install.pac
 library(tidyverse)  
 library(patchwork)    # to glue plots together
 library(GGally)       # for the MDS pairs plot
+library(ggrepel)      # for labels on manhattan plot
 ```
 
 
@@ -672,7 +650,7 @@ read_delim("./plink.sexcheck", delim = ' ') %>%
 ```
 
 
-### Minor allele frequency from plink --freq
+### QC: Minor allele frequency from plink --freq
 
 This plots the distribution of MAF from MAF_check.frq results obtained in QC step 'd'.
 
@@ -686,7 +664,7 @@ read_delim("./MAF_check.frq", delim = ' ') %>%
        subtitle = "Minor allele frequency distribution")
 ```
 
-### HWE
+### QC: Hardy-Weinberg equilibrium exact test
 
 This plots the distribution of HWE exact test p-values from QC step 'e'.
 
@@ -714,6 +692,7 @@ gwas_mds1 <- function(mds_data){
   dogs %>% 
     ggplot(aes(c1, c2, color = phenotype, shape = sex)) +
     geom_point() +
+    coord_equal()
     theme_minimal() +
     theme(panel.grid = element_blank(), 
           panel.border = element_rect(color = 'black', 
@@ -770,121 +749,176 @@ but no individuals are extremely far from the cloud.
 
 ```{r make_mds1}
 # a 2d MDS plot
-fig1_gwas_mds1 <- gwas_mds1(dogs)
+fig1_gwas_mds1 <- gwas_mds1(dogs) + coord_equal()
 fig1_gwas_mds1
 ```
 
 You may want to check for outliers in multiple MDS components.
 
-```{r make_mds2}
+```{r make_mds2, fig.height=5, fig.width=6}
 # multiple pairwise
 fig1_gwas_mds2 <- gwas_mds2(dogs)
 fig1_gwas_mds2
 ```
 
 
+### Manhattan plot
+
+/home/jmoggrid/scratch/lab_test_run/result2.assoc.logistic
+
+This creates the classic GWAS figure: the Manhattan plot from the output of plink --assoc (\*.assoc) or --logistic (\*.assoc.logistic). The p-values for each SNP are plotted on the y-axis, with SNP position along the x-axis. Some work goes into getting the x-axis to reflect chromosome lengths and to make the colors alternate. This code was adapted from [a blog post by Daniel Roelfs](https://danielroelfs.com/blog/how-i-create-manhattan-plots-using-ggplot/).
+
+```{r Manhattan1}
+gwas_manhattan_plot <- function(assoc_data, 
+                                label_if, 
+                                snpsOfInterest){
+
+  assoc_data <- assoc_data %>%
+    group_by(chr) %>%
+    summarise(chr_len = max(bp)) %>%
+    # cumulative position of each chromosome
+    mutate(tot = cumsum(chr_len) - chr_len) %>%
+    select(-chr_len) %>%
+    # join cumulative position to initial data
+    left_join(logistic, by = 'chr') %>%
+    # get the cumulative position of each SNP
+    arrange(chr, bp) %>%
+    mutate(BPcum = bp + tot) %>%
+    # Add highlight and annotation information
+    mutate(is_highlight = ifelse(snp %in% snpsOfInterest, "yes", "no")) %>%
+    mutate(is_annotate = ifelse(-log10(p) > label_if, "yes", "no"))
+
+  # Prepare X axis breaks + labels
+  axisdf <- assoc_data %>%
+    group_by(chr) %>%
+    summarize(center=(max(BPcum) + min(BPcum)) / 2)
+
+  # Make the manhattan plot showing -logP ~ position:
+  ggplot(assoc_data, aes(BPcum, -log10(p))) +
+    geom_point(aes(color = as.factor(chr)), alpha = 0.8, size = 1) +
+    scale_color_manual(values = rep(c("grey35", "skyblue"), 100)) +
+    # Add highlighted points
+    geom_point(
+      data = assoc_data %>% filter(is_highlight == "yes"),
+      color = "orange",
+      size = 2) +
+    # Add labels using ggrepel to avoid overlap
+    ggrepel::geom_text_repel(
+      data = assoc_data %>% filter(is_annotate == "yes"),
+      aes(label = snp),
+      size = 2) +
+    # Set x-axis breaks + labels
+    scale_x_continuous(
+      label = axisdf$chr,
+      breaks = axisdf$center,
+      expand = c(0.01, 0.01)) +
+    # Custom the theme:
+    labs(x = 'position') +
+    theme_bw() +
+    theme(legend.position = "none",
+          axis.text.x = element_text(size = 7),
+          panel.border = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank()
+    )
+}
+```
+
+Parse the logistic regression results (you can do the same with other .assoc results files that share the same format / header).
+
+```{r make_manhattan}
+# parse logistic regression results
+logistic <- 
+  read_delim("result2.assoc.logistic", delim = ' ') %>% 
+  janitor::clean_names() %>% 
+  mutate_all(trimws) %>% 
+  transmute(chr, bp, p, snp, or, stat) %>% 
+  mutate(across(c(chr, bp, p, or, stat), as.numeric))
+```
+
+Make the Manhattan plot of association p-values
+
+```{r, fig.height=3.5, fig.width=7}
+# create a vector of snps to we want to highlight in the manhattan plot (eg. based on p-value)
+snpsOfInterest <- logistic %>% 
+  filter(p < as.numeric('1e-6')) %>%
+  pull(snp)
+         
+# Make the Manhattan plot using the function we created above
+# the 'label_if' parameter sets the threshold at which snps will have text labels
+gwas_manhattan_plot(logistic, label_if = 4, snpsOfInterest) +
+  # to adjust appearance of y-axis (ignore the replacement warning)
+  scale_y_continuous(expand = c(0.05, 0.05), limits = c(0, 6),
+                     breaks = seq(0, 6, 1)) +
+  labs(subtitle = "Logistic regression test for SNP association")
+```
 
 
-<!-- ### Manhattan plot -->
+We can also get a table of the most significant associations:
 
-<!-- This creates the classic GWAS figure: the Manhattan plot. The p-values for each SNP are plotted on the y-axis, with SNP position along the x-axis. This code was adapted from [a blog post by Daniel Roelfs](https://danielroelfs.com/blog/how-i-create-manhattan-plots-using-ggplot/). -->
-
-<!-- ```{r Manhattan1} -->
-<!-- gwas_manhattan_plot <- function(assoc_data, snpsOfInterest = NULL){ -->
-
-<!--   assoc_data <- assoc_data %>%  -->
-<!--     group_by(chr) %>%  -->
-<!--     summarise(chr_len = max(bp)) %>%  -->
-<!--     # cumulative position of each chromosome -->
-<!--     mutate(tot = cumsum(chr_len) - chr_len) %>% -->
-<!--     select(-chr_len) %>% -->
-<!--     # join cumulative position to initial data -->
-<!--     left_join(logistic, by = 'chr') %>% -->
-<!--     # get the cumulative position of each SNP -->
-<!--     arrange(chr, bp) %>% -->
-<!--     mutate(BPcum = bp + tot) %>% -->
-<!--     # Add highlight and annotation information -->
-<!--     mutate(is_highlight = ifelse(snp %in% snpsOfInterest, "yes", "no")) %>% -->
-<!--     mutate(is_annotate = ifelse(-log10(p) > 4, "yes", "no")) -->
-
-<!--   # Prepare X axis breaks + labels -->
-<!--   axisdf <- assoc_data %>%  -->
-<!--     group_by(chr) %>% -->
-<!--     summarize(center=(max(BPcum) + min(BPcum)) / 2) -->
-
-<!--   # Make the manhattan plot showing -logP ~ position: -->
-<!--   ggplot(assoc_data, aes(BPcum, -log10(p))) + -->
-<!--     geom_point(aes(color = as.factor(chr)), alpha = 0.8, size = 1) + -->
-<!--     scale_color_manual(values = rep(c("grey35", "skyblue"), 100)) + -->
-<!--     # Add highlighted points -->
-<!--     geom_point( -->
-<!--       data = assoc_data %>% filter(is_highlight == "yes"), -->
-<!--       color = "orange", -->
-<!--       size = 2) + -->
-<!--     # Add labels using ggrepel to avoid overlap -->
-<!--     geom_text_repel( -->
-<!--       data = assoc_data %>% filter(is_annotate == "yes"), -->
-<!--       aes(label = snp), -->
-<!--       size = 2) + -->
-<!--     # Set x-axis breaks + labels -->
-<!--     scale_x_continuous( -->
-<!--       label = axisdf$chr,  -->
-<!--       breaks = axisdf$center, -->
-<!--       expand = c(0.01, 0.01)) + -->
-<!--     scale_y_continuous(expand = c(0.05, 0.05)) + -->
-<!--     # Custom the theme: -->
-<!--     labs(x = 'position') + -->
-<!--     theme_bw() + -->
-<!--     theme(legend.position = "none",  -->
-<!--           axis.text.x = element_text(size = 7), -->
-<!--           panel.border = element_blank(), -->
-<!--           panel.grid.major.x = element_blank(), -->
-<!--           panel.grid.minor.x = element_blank() -->
-<!--     ) -->
-<!-- } -->
-<!-- ``` -->
+```{r}
+# show the most significant hits
+logistic %>% 
+  filter(p < 0.0001) %>% 
+  arrange(p) %>% 
+  select(chromosome = chr,
+         postion = bp,
+         SNP = snp, 
+         OR = or, 
+         `test statistic` = stat, 
+         `p-value` = p) %>% 
+  kableExtra::kable(format = 'simple',
+                    caption = 'Most significant results')
+```
 
 
-<!-- ### QQ plot -->
 
-<!-- This section creates the QQ plot for your association p-values. -->
-<!-- This code adapted from [a blog post by Daniel Roelfs](https://danielroelfs.com/blog/how-i-make-qq-plots-using-ggplot/)) -->
+### Quantile-quantile plot
 
-<!-- ```{r QQplot} -->
-<!-- gwas_qq_plot <- function(assoc_data){ -->
+This section creates the QQ plot for your association p-values.
+This code adapted from [a blog post by Daniel Roelfs](https://danielroelfs.com/blog/how-i-make-qq-plots-using-ggplot/).
 
-<!--   # set a confidence interval range -->
-<!--   ci <- 0.95 -->
-<!--   # count number of SNPs tested -->
-<!--   nSNPs <- nrow(assoc_data) -->
+```{r QQplot}
+gwas_qq_plot <- function(assoc_data){
 
-<!--   # create a sorted vector of p-values, -->
-<!--   # use the ppoints function to get the expected distribution -->
-<!--   plotdata <- tibble( -->
-<!--     observed = sort(assoc_data$p), -->
-<!--     expected = ppoints(nSNPs), -->
-<!--     ci_lower   = qbeta(p = (1 - ci) / 2,  -->
-<!--                        shape1 = seq(nSNPs),  -->
-<!--                        shape2 = rev(seq(nSNPs))), -->
-<!--     ci_upper   = qbeta(p = (1 + ci) / 2,  -->
-<!--                        shape1 = seq(nSNPs),  -->
-<!--                        shape2 = rev(seq(nSNPs))) -->
-<!--   ) %>%  -->
-<!--     mutate_all(~ -log10(.x)) -->
+  # set a confidence interval range
+  ci <- 0.95
+  # count number of SNPs tested
+  nSNPs <- nrow(assoc_data)
 
-<!--   # make scatterplot -->
-<!--   plotdata %>%  -->
-<!--     ggplot(aes(expected, observed)) + -->
-<!--     geom_abline(intercept = 0, slope = 1, lty = 2, color = 'gray') + -->
-<!--     geom_point(shape = 1, ) + -->
-<!--     coord_equal() + -->
-<!--     theme_classic() + -->
-<!--     labs( -->
-<!--       x = expression(Expected ~ -log[10](p)), -->
-<!--       y = expression(Observed ~ -log[10](p)), -->
-<!--       title = "Q-Q plot for association model" -->
-<!--     ) -->
-<!-- } -->
+  # create a sorted vector of p-values,
+  # use the ppoints function to get the expected distribution
+  plotdata <- 
+    tibble(
+      observed = sort(assoc_data$p),
+      expected = ppoints(nSNPs),
+      ci_lower = qbeta(p = (1 - ci) / 2,
+                       shape1 = seq(nSNPs),
+                       shape2 = rev(seq(nSNPs))),
+      ci_upper = qbeta(p = (1 + ci) / 2,
+                       shape1 = seq(nSNPs),
+                       shape2 = rev(seq(nSNPs)))
+      ) %>%
+    mutate_all(~ -log10(.x))
 
-<!-- ``` -->
+  # make scatterplot
+  plotdata %>%
+    ggplot(aes(expected, observed)) +
+    geom_abline(intercept = 0, slope = 1, lty = 2, color = 'gray') +
+    geom_point(shape = 1, ) +
+    coord_equal() +
+    theme_classic() +
+    labs(
+      x = expression(Expected ~ -log[10](p)),
+      y = expression(Observed ~ -log[10](p))
+    )
+}
+```
+
+Plot the q-q plot for the logistic regression p-values in the Manhattan above. This is showing us the distribution of our p-values against the distribution expected by chance alone. Since the fit is very close to the expected, this indicates that we don't have much in the way of strong associations.
+
+```{r fig.height=3.5, fig.width=3.5}
+gwas_qq_plot(logistic) +
+  labs(title =  "Q-Q plot for logistic regression")
+```
 
