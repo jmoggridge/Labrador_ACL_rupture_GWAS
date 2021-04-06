@@ -4,10 +4,10 @@ author: "Jason Moggridge"
 date: "`r Sys.Date()`"
 output:
   pdf_document:
-    highlight: kate
+    highlight: zenburn
     toc: true
     toc_depth: 3
-urlcolor: green
+urlcolor: purple
 ---
 
 ```{r setup, include=FALSE}
@@ -25,18 +25,15 @@ The process involves performing quality control for a number of characteristics,
 Baker LA et al. 2017. Genome-wide association analysis in dogs implicates 99 loci as risk variants for anterior cruciate ligament rupture. *PLOS ONE* 12(4): e0173810. 
 https://doi.org/10.1371/journal.pone.0173810
   
-  **Data source**: Data dryad:  
-https://datadryad.org/stash/dataset/doi:10.5061/dryad.8kk06   
-(We'll download the data with `curl` in the tutorial)
+  **Data source**: Data dryad  https://datadryad.org/stash/dataset/doi:10.5061/dryad.8kk06   
 
-  
-## GWAS analysis outline
+#### GWAS analysis outline
 
  - 1 - QC + filtering data
  - 2 - Population stratification & MDS 
  - 3 - Association tests and statistics
 
-## Plink usage primer
+#### Plink usage primer
 
     plink --bfile {my_data} --dog --options --commands --out {new_name} 
 
@@ -387,8 +384,6 @@ Finally, we want to reformat the .mds file to a plink covariate file that we'll 
 ```{r MDS_covars, engine = 'bash', eval = F, include = T}
 awk '{print$1, $2, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13}' \
   cr237_filter6.mds > covar_mds.txt
-  
-head covar_mds.txt
 ```
 
 
@@ -412,10 +407,9 @@ plink --dog --bfile cr237_filter6 \
 head result1.assoc
 ```
 
-We can see that this gets us the Chi-sq, p-value, and odds ratio statistics for each SNP. 
+We can see that this gets us the Chi-sq, p-value, and odds ratio statistics for each SNP.  
 
-
-We can also get various corrections for multiple testing: adjusted, Bonferroni, Holm, Sidak, and FDR stats can be obtained by calling `--assoc` with the `--adjust` flag. We get an extra file '*.assoc.adjusted' with the output.
+We can also get various corrections for multiple testing: Bonferroni correction and FDR-based statistics can be obtained by calling `--assoc` with the `--adjust` flag. We get an extra file '*.assoc.adjusted' with the output.
 
 ```{r assoc_adj, engine = 'bash', eval = F, include = T}
 plink --bfile cr237_filter6 --dog \
@@ -429,7 +423,7 @@ head result_adjusted.assoc.adjusted
 
 ```
 
-Note: there aren't any (!) significant results after some corrections. Baker *et al*. note that Bonferroni correction might be too stringent given that dogs have many SNPs that are inherited in haplotype blocks due to extensive linkage disequilibrium.
+Note: there aren't any (!) significant results after some corrections. Baker *et al*. note that Bonferroni correction is too stringent given that dogs have many SNPs that are inherited in haplotype blocks due to extensive linkage disequilibrium. 
 
 
 ### Logistic regression modeling   
@@ -463,9 +457,7 @@ read_rds("./fig_manhat_for_report.rds") +
 
 This involves randomly permuting the phenotypes to get estimates of  significance empirically and as such it is computationally intensive but has some desirable properties for test. This is a general procedure and various tests can be applied in this framework; [go here learn more](https://zzz.bwh.harvard.edu/plink/perm.shtml) about the different uses of plink --perm. For more background, see this [article by Che *et al.*](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4070098/).
 
-In the context of our dataset (small size, possibly contains relatives since we did not filter based on pi_hat), permutation is an attractive option to avoid some of the assumptions of ANOVA testing. Here we do 1 million permutations of the genotypes with the `--assoc` flag and `--model` specified as `mperm` with our number of repeats. 
-This will invoke the max(T) algorithm rather than the adaptive one.
-You may set the `--seed` to any large integer so that you get the same results (there is randomness otherwise).
+In the context of our dataset (small size, possibly contains relatives since we did not filter based on pi_hat), permutation is an attractive option to avoid some of the assumptions of ANOVA testing. Here we do 1 million permutations of the genotypes with `--assoc` and the `--mperm` option plus our number of repeats. This will invoke the max(T) algorithm rather than the adaptive one. You may set the `--seed` to any large integer so that you get the same results (there is randomness otherwise).
 
 
 ```{r perm, engine = 'bash', eval = F, include = T}
@@ -480,24 +472,18 @@ Plink --bfile cr237_filter6 --dog \
 # Order your data, from lowest to highest p-values
 sort -gk 4 result_perm_1M.assoc.mperm > sorted_subset.txt
 
-# Check results out
+# Check results out; EMP2 has the corrected values
 head sorted_subset.txt
 ```
 
-Permutation will take a few minutes. Once it has started, it's a good time to run some of the R code included with this tutorial to explore the data we have generated already. 
-
-
-<!-- Reflection on your experience learning this analysis and what you think the most challenging parts -->
-<!-- were. Describe why you chose this particular analysis. Please include details on how accessible and -->
-<!-- well-documented your chosen workflow or software was, and what specific points might pose significant -->
-<!-- challenges to others learning this type of analysis. (20%) -->
+Permutation will take a few minutes. None of the adjusted p-values are significant (spoiler).
 
 
 ## 5 Discussion 
 
-There are a number of complicated aspects in performing genome-wide association analyses. Many genetic and statistical concepts are involved and organism-specific knowledge is key. I found that setting parameters for pruning and selecting appropriate association tests was challenging. The dataset I chose for this tutorial (Baker *et al.,* 2017) had the benefit of being a nice size (n=237), though I could not reproduce their result as some data is missing from data dryad (*e.g.*. neutering). I found Plink easy to use after following the Marees tutorial. The documentation is adequate to operate the tool but the explanation is terse. I choose to perform a GWAS analysis for this work because I am interested in methods that allow us to unravel the genetic underpinnings of complex traits and diseases. Genome-wide association and quantiative trait loci both seem highly relevant as large-scale genomics work becomes more tractable, allowing personalized medicine, *etc.*, to be realized.
+There are a number of complicated aspects in performing genome-wide association analyses. Many genetic and statistical concepts are involved and organism-specific knowledge is key. I found that setting parameters for pruning and selecting appropriate association tests was challenging. The dataset I chose for this tutorial (Baker *et al.,* 2017) had the benefit of being a nice size (n=237), though I could not reproduce their result as some data is missing from data dryad (*e.g.*. neutering). I found Plink easy to use after following the [Marees GWAS tutorial](https://github.com/MareesAT/GWA_tutorial/). The documentation is adequate to operate the tool but the explanation is terse, as familiarity with GWAS and statistical tests is assumed. The tutorial I followed helped somewhat but used simulated human data. As such I had to adapt their work-flow for canine data.
 
-
+I choose to perform a GWAS analysis for this work because I am interested in methods that allow us to unravel the genetic underpinnings of complex traits and diseases. Genome-wide association and quantitative trait loci both seem highly relevant as large-scale genomics becomes more tractable, allowing personalized medicine, *etc.*, to be realized.
 
 
 ----
@@ -645,7 +631,7 @@ maf + hwe
 
 ----
 
-#### MDS Plots
+#### MDS Plot
 
 These functions create a 2d plot of the MDS (`gwas_mds1()`), and a multipanel plot of the first 5 components (`gwas_mds2`). These require joined the .mds and .fam data as you will see below.
 
@@ -859,20 +845,10 @@ gwas_qq_plot <- function(assoc_data){
 ```
 
 
-```{r fig.height=3.5}
+```{r show_qq, fig.height=3.5}
 gwas_qq_plot(logistic) +
   labs(title =  "Q-Q plot for logistic regression")
 ```
 
 
 ---
-
-
-
-## Comparing with the permutation estimates
-
-```{r}
-
-
-```
-
