@@ -1,5 +1,5 @@
 ---
-title: "Case-Control genome-wide association tutorial"
+title: "Genome-wide association tutorial: finding SNPs associated with ACL rupture in Labrador retrievers using `plink`"
 author: "Jason Moggridge"
 date: "`r Sys.Date()`"
 output:
@@ -7,72 +7,49 @@ output:
     highlight: kate
     toc: true
     toc_depth: 3
-urlcolor: blue
+urlcolor: green
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message =F, warning = F, cache = T)
+knitr::opts_chunk$set(echo = TRUE, message =F, warning = F, cache = F)
 ```
 
 ---
 
-# Overview:
+# Overview
 
-This tutorial deals with performing a statistical analysis of SNP
-data for a case-control genome-wide association study using the popular and
-versatile [`plink` toolset](https://zzz.bwh.harvard.edu/plink/index.shtml).
-We will perform quality control, exploratory analysis of data with MDS, then test for genome-wide association, and plot the results using R.
-The sample dataset is from a recent GWAS in Labrador retrievers with a relatively small number of individuals.
+This tutorial shows how to perform a case-control genome-wide association analysis (GWAS) of SNP data for ACL rupture in Labrador retrievers, using the popular [`plink` toolset](https://zzz.bwh.harvard.edu/plink/index.shtml). The sample dataset, from a recent work by [Baker *et al.* (2017)](https://doi.org/10.1371/journal.pone.0173810), consists of 173,662 SNPs and 237 dogs and this is available through data dryad. 
+The process involves performing quality control for a number of characteristics, exploratory analysis of data with MDS, and finally testing for genome-wide association. This tutorial also demonstrates how to visualize the results with `R` using `ggplot2` . 
 
-## Process outline:
-
- - 1 - Obtain data and load modules
- - 2 - QC + filtering data
- - 3 - Pop stratification, MDS / clustering
- - 4 - Association tests and statistics
-
- 
-## Dataset: 
-
-This tutorial uses a publicly-available dataset with a manageable size, 173,662 SNPs and 237 dogs, from a case-control GWAS for ACL rupture, which is fairly common in Labradors. 
-  
 **Related publication**: 
-Genome-wide association analysis in dogs implicates 99 loci as risk variants for anterior cruciate ligament rupture.  
-Baker LA, Kirkpatrick B, Rosa GJM, Gianola D, Valente B, et al. (2017) *PLOS ONE* 12(4): e0173810. 
+Baker LA et al. 2017. Genome-wide association analysis in dogs implicates 99 loci as risk variants for anterior cruciate ligament rupture. *PLOS ONE* 12(4): e0173810. 
 https://doi.org/10.1371/journal.pone.0173810
   
+  **Data source**: Data dryad:  
+https://datadryad.org/stash/dataset/doi:10.5061/dryad.8kk06   
+(We'll download the data with `curl` in the tutorial)
+
   
-**Data source**: Data dryad link  https://datadryad.org/stash/dataset/doi:10.5061/dryad.8kk06 (We'll download the data with `curl` in the tutorial)
+## GWAS analysis outline
 
-**Files**:  
- - `cr237_dryad.bed`: has genotype data   
- - `cr237_dryad.bim`: has info about each variant (human-readable)    
- - `cr237_dryad.fam`: has phenotype data (human-readable)    
-  
-
-
+ - 1 - QC + filtering data
+ - 2 - Population stratification & MDS 
+ - 3 - Association tests and statistics
 
 ## Plink usage primer
 
     plink --bfile {my_data} --dog --options --commands --out {new_name} 
 
-Plink commands are run in the unix shell. Throughout this tutorial, we use the `--bfile` flag because we have bed/bim/fam files; the `--make-bed` flag to get the same type of files back; and we always have to use the `--dog` flag because dogs have 38 chromosomes and plink expects human data otherwise (for every command!).  
-For various filtering steps, plink has `--keep` and `--remove` commands for filtering individuals, while the `--extract` and `--exclude` functions do the same for variants. Each of these requires a text file with a list of identifiers, eg. <`--keep keep_list.txt`> . 
-This tutorial can only provide a short explanation of each function and the parameters used, but you will certainly want more information: check out the (plink manual)[https://zzz.bwh.harvard.edu/plink/reference.shtml] to get more insight into each function as you work your way through the example here.
+Plink commands are run in the unix shell. Throughout this tutorial, we use the `--bfile` flag because we have bed/bim/fam files; the `--make-bed` flag to get the same type of files back; and we always have to use the `--dog` flag because dogs have 38 autosomes (so many!) and plink expects human data otherwise (for every command else you'll get an error!). For various filtering tasks, plink has `--keep` & `--remove` commands for filtering individuals, while the `--extract` & `--exclude` functions do the same for variants. Each of these requires a input file with a list of identifiers, eg. <`--keep keep_list.txt`> . This tutorial can only provide a short explanation of each function and the parameters used, but you will certainly want more information: check out the [plink manual](https://zzz.bwh.harvard.edu/plink/reference.shtml) to get more insight into each function as you work your way through the tutorial.
 
-
----
-
-\newpage
 
 # Step-by-step tutorial
 
-All commands should be run in the unix shell. Later on we will do some plotting in R.
-
+All commands should be run in the unix shell, except for in the final section, 'Visualize the results', where we will do plotting in R. Commands that you should run are indicated with syntax highlighting. 
 
 ## 1 - Data and software
 
-Let's get the dataset from datadryad. Do this on a login node on `graham`. Download & unzip. The files are relatively small. (If the `curl` throws an error, try exiting graham and logging in again)
+Let's get the dataset from data-dryad using `curl`. Do this on a login node on `graham`. The files are relatively small. (If the `curl` throws an error, try: exiting graham, ssh in again, run curl again)
 
 ```{r download, engine = 'bash', eval = F, include = T}
 curl -L http://datadryad.org/api/v2/datasets/doi%253A10.5061%252Fdryad.8kk06/download \
@@ -82,9 +59,12 @@ unzip labrador_download
 
 We got the cr237_dryad.bed, .bim., and .fam files:
 
-  - .bed is a binary file with genotypes
-  - .bim is a binary file with info about variant loci
-  - .fam has the phenotype info and genders and is text
+ - 'cr237_dryad.bed': has genotype data   
+ - 'cr237_dryad.bim': has info about each variant (human-readable)    
+ - 'cr237_dryad.fam': has phenotype data (human-readable)    
+
+
+See the plink documentation for [more info about file formats](https://www.cog-genomics.org/plink/1.9/formats) (other input formats are possible, if you're working with files that don't match this pattern).
 
 The .fam file has no header, so it's useful to know the columns that have the identifiers, sex and phenotype data for the 237 dogs:
 
@@ -101,7 +81,6 @@ head cr237_dryad.fam
 ```
 
 There are no relatives in this dataset, so the FIDs are all the same as the IIDs, and columns 3 and 4 are all zeros. Our binary trait of interest (ACL rupture) is in column 6.   
-See the plink documentation for more info about file formats: https://www.cog-genomics.org/plink/1.9/formats (other input formats are possible, if you're working with files that don't match this pattern).
 
 \
 
@@ -116,7 +95,7 @@ module load nixpkgs/16.09 gcc/7.3.0 r/4.0.2 plink/1.9b_4.1-x86_64
 ## 2 - QC / Filtering
 
 
-### a. Data missingness
+#### a. Data missingness
 
 First we'll check the amount of missing data per individual with `--missing`.
 
@@ -124,9 +103,7 @@ First we'll check the amount of missing data per individual with `--missing`.
 plink --dog --bfile cr237_dryad --missing
 ```
 
-The files .imiss and .lmiss show the proportion of missing data per loci and indiv. Download these to your local machine and check the distribution if you want to adjust the thresholds. There is code for plotting these in the R section at the end of the tutorial.
-
-Here, we'll filter any SNPs that are missing >5% with `--geno`, and then we'll do the same for individuals with `--mind`. We'll constantly save our output to new files by the way, so you'll know which step was performed last for each set of files. 
+The files with suffixes .imiss and .lmiss show the proportion of missing data per loci and individual. There is code for plotting these data in the appendix. Now we'll filter any SNPs that are missing > 5% with `--geno`, and then we'll do the same for individuals with `--mind`. 
 
 ```{r filter_miss, engine = 'bash', eval = F, include = T}
 # filter SNPs
@@ -134,25 +111,19 @@ plink --dog --bfile cr237_dryad \
   --geno 0.05 \
   --make-bed --out cr237_filter1
 # filter individuals 
-plink --dog --bfile cr237_geno \
+plink --dog --bfile cr237_filter1 \
   --mind 0.05 \
   --make-bed --out cr237_filter1
 ```
 
-You can see how many variants were dropped in plink's output to the terminal (as well as other useful data for tracking our dataset):   
-- 7468 variants removed due to missing genotype data (--geno).
-- 0 dogs removed due to missing genotype data (--mind).
-
-You'll see that we get warnings about '25567 het. haploid genotypes', 'Nonmissing nonmale Y'-  don't worry about that yet.
+You can see how many were dropped in both steps (7468 variants, 0 dogs) from plink's output to the terminal (as well as other useful data for tracking our dataset)  You'll see that we get warnings about '25567 het. haploid genotypes', 'Nonmissing nonmale Y' - we'll deal with that next.
 
 
+#### b. Sex discrepancy check
 
-### b. Sex discrepancy check
+We can use the genotype data to check whether the recorded sex for each individual makes sense. This is based on looking at SNPs on the X chromosome, but the X has a large pseudo-autosomal region that we need to ignore first (6630000 - 126883977). In the dog dataset we see some unusual results, so we'll use plink to impute the sex of 6 dogs.
 
-We can use the genotype data to check whether the recorded sex for each individual makes sense (mistakes in the lab can happen). This is based on looking at SNPs on the X chromosome, but the X has a large pseudo-autosomal region that we need to ignore first (6630000 - 126883977).
-In the dog dataset we see some unusual results, so this entire step is shown as a demo and we won't delete and individuals or impute their sexes.
-
-To ignore SNPs in the canine pseudo-autosomal region of X-chromosome
+To ignore SNPs in the canine pseudo-autosomal region (PAR) of X-chromosome we use --splitx and provide the boundaries of the PAR
 
 ```{r splitX, engine = 'bash', eval = F, include = T}
 # ignore X-chromosome PAR 
@@ -161,26 +132,19 @@ plink --dog --bfile cr237_filter1 \
   --make-bed --out cr237_splitx
 ```
 
-568 chromosome codes changed here, which is consistent with the  565 SNPs in the PAR reported here: https://www.genetics.org/content/184/2/595#T3.
-The number of heterozygous haploid genotypes decreases to 5284 as a result of updating the way plink handles the variants.
+568 chromosome codes changed here, which is very close to the 565 SNPs in the PAR reported [in this paper I found](https://www.genetics.org/content/184/2/595#T3). Note: the position range given above could be inaccurate, as I took the numbers from a [google groups post](https://groups.google.com/g/plink2-users/c/jvLBBkjbX84?pli=1). The number of heterozygous haploid genotypes decreased to 5284 as a result of updating the way plink handles the PAR variants.
 
-We will use F-values produced by `--check-sex` (metric of X chromosome homozygosity/ inbreeding) to inform us if any individuals are sexed incorrectly or ambiguously. We add arguments for the threshold for females and males to be flagged. These are set very loosely here; the default thresholds will OK males if F > 0.8 and females if F < 0.2. In visualizing F-value distributions, males should appear near 1, females more loosely distributed around 0. We make a list of flagged individuals with `grep` and `awk`.
+We will now use F-values produced by `--check-sex` (metric of X chromosome homozygosity/ inbreeding) to inform us if any individuals are sexed incorrectly or ambiguously. We add arguments for the threshold for females and males to be flagged. These are set very loosely here; the default thresholds will OK females if $F < 0.2$ and males if $F > 0.8$. In a histogram of the F-value distributions, males should appear near 1, females more loosely distributed around 0. 
 
 ```{r sex_check, engine = 'bash', eval = F, include = T}
 # check sex labels
 plink --bfile cr237_splitx --dog \
   --check-sex 0.799 0.80 
-  
-grep "PROBLEM" plink.sexcheck | awk '{print$1,$2}' \
-  > sex_discrepancy.txt
-
-wc -l sex_discrepancy.txt 
-cat sex_discrepancy.txt
 ```
 
-The output tells us that 6 problems are detected with these thresholds. We plot the sex-check results in the R section below, where we see that there are some outliers in both sexes. We could make a list to remove those individuals, but Baker et al. did not filter any individuals here, so we'll do the same. 
+The output tells us that 6 problems are detected with these (very relaxed) thresholds. We plot the sex-check results in the R section below, where we see that there are some outliers in both sexes.
 
-One other option is to impute the sex of ambiguous individuals (`--impute-sex)`, as shown here. As before, the thresholds are given for labeling any problem cases. We do `--check-sex` again to get the .sexcheck results.
+One option available to us is to impute the sex of ambiguous individuals with `--impute-sex`. As before, thresholds are given for labeling any problem cases. We do `--check-sex` again after imputation to get the new results with imputed labels.
 
 ```{r impute_sex, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_splitx \
@@ -188,24 +152,17 @@ plink --dog --bfile cr237_splitx \
   --make-bed --out cr237_splitx_impute
   
 plink --dog --bfile cr237_splitx_impute  \
-  --check-sex 0.799 0.80 
+  --check-sex 0.799 0.80 \
+  --out imputed
   
-grep "PROBLEM" plink.sexcheck # no more problems
+grep "PROBLEM" imputed.sexcheck # no more problems
 ```
 
-Or we could remove the 6 individuals with the 'PROBLEM' status using the list we made.
 
-```{r remove_discrep, engine = 'bash', eval = F, include = T}
-plink --bfile cr237_splitx  --dog  \
-  --remove sex_discrepancy.txt \
-  --make-bed --out cr237_splitx_drop
-```
-
-We'll keep all subjects and the 6 imputed labels  (`cr237_splitx_impute`) for the next step. Perhaps the F-values for dogs can be bit more variable that the expectations outlined above which are suited to human genotype data.
+We'll go with imputation of the 6 problematic labels, keeping all subjects. Perhaps the F-values for dogs can be bit more variable than the expectations outlined above (which are probably suited specifically to human genotypes).
 
 
-
-### c. Autosomal SNPs only
+#### c. Autosomal SNPs only
 
 This is pretty straightforward. Generally, we only want to analyze the autosomal SNPs, not the X, Y, or mitochondrial chromosomes. 
 
@@ -222,9 +179,7 @@ plink --dog --bfile cr237_splitx_impute \
 
 Great, we removed ~ 6k SNPs and now only have autosomal SNPs for our GWAS.
 
-
-
-### d. MAF filtering  
+#### d. MAF filtering  
 
 Generally, we want a threshold of MAF > 0.05, or possibly lower but only if our sample is very large. We can use `--freq` to get the MAF statistics for all SNPs, and `--maf` to filter the dataset to a specified threshold (5%). 
 
@@ -243,9 +198,9 @@ We removed 45k SNPs with small minor allele frequency. The results from --freq (
 
 
 
-### e. Hardy-Weinberg equilibrium
+#### e. Hardy-Weinberg equilibrium
 
-Do we have far more heterozygous calls than expected? That could mean there is systemic calling error (bad). If we have fewer heterozygotes than expected, it could be due to population stratification (also bad if not controlled). HW-equilibrium means no migration, natural selection, and/or non-random mating violations. GWAS methods assume HW-equilibrium for allele frequencies, so it is important to remove any SNPs that are far from equilibrium.
+Do we have far more heterozygous calls than expected? That could mean there is systemic calling error (bad). If we have fewer heterozygotes than expected, it could be due to population stratification (also bad if not controlled). GWAS methods generally assume HW-equilibrium for allele frequencies, so it is important to remove any SNPs that are far from equilibrium.
 
 First we use `--hardy` to output the HWE exact test p-values to the file plink.hwe for plotting (see R section). Afterwards, we use `--hwe` to remove SNPs that deviate from HWE with p-value smaller than 1e-7 (as Baker *et al.* did). By default, `--hwe` only removes these based on the control group, so we repeat the call with the `--hwe-all` flag to remove them for the cases too. 
 
@@ -264,11 +219,9 @@ plink --dog --bfile cr237_filter4 \
 
 The two filtering steps removed 43 and 93 variants.
 
-### f. SNP pruning
+#### f. SNP pruning
 
-We will now 'prune' the set of SNPs to get a subset consisting of loci that are in approximate linkage equilibrium. This removes a bunch of SNPs that are highly correlated and thus provide little extra information for association testing.
-
-Do this with `--indep-pairwise`, where three parameters `50 5 0.2` are given to scan a window size 50 kbp, to shift the window 5 SNPs at each step, and to use 0.2 as the pairwise $r^2$ threshold. 
+We will now 'prune' the set of SNPs to get a subset consisting of loci that are in approximate linkage equilibrium. This removes a bunch of SNPs that are highly correlated and thus provide little extra information for association testing. We do this with `--indep-pairwise`, where three parameters `50 5 0.2` are given to scan a window size 50 kbp, to shift the window 5 SNPs at each step, and to use 0.2 as the pairwise $r^2$ threshold. 
 
 ```{r prune_snps, engine = 'bash', eval = F, include = T}
 plink --bfile cr237_filter4 --dog \
@@ -310,7 +263,7 @@ write.table(fails, "hetero_outliers.txt", row.names = FALSE)
 
 ```
 
-Save the script and exit nano. Set permissions and run the Rscript with --no-save to avoid creating any workspace files.
+Save the script and exit nano. Set permissions with `chmod` and run the Rscript with `--no-save` to avoid creating any work-space files.
 
 ```{r R_het_filter, engine = 'bash', eval = F, include = T}
 chmod u+x identify_het_outliers.R 
@@ -334,10 +287,10 @@ Note that the list made by the Rscript is empty - we didn't have any individuals
 
 ### h. Cryptic relatedness / Identity by descent
 
-Since an independant sample is assumed for association testing, we want to exclude any related individuals from analysis. 
+Since an independent sample is assumed for association testing, we want to exclude any related individuals from analysis. 
 Here we examine data for individuals with high relatedness and compute the pi_hat statistic for identity by descent. Normally, we remove any individuals having 'cryptic relatedness', where `pi_hat` is greater than some threshold. In their article, Baker *et al.* don't mention doing this at all, so we may get different results by applying this filter.
 
-The `--genome` function is used to compute relation between pairs of individuals (identity by descent). The `--min` flag sets minimum PI_HAT for the output (otherwise we get all values). A PI_HAT of 1 implies identical individuals (duplicates in data), 0.5 is parent-child or siblings, 0.25 is aunt/uncle-niece/nephew. We want to scrutinize anything over 0.2 as these pairs could be related.
+The `--genome` function is used to compute identity by descent between pairs of individuals. The `--min` flag sets minimum PI_HAT for the output (otherwise we get all values). A PI_HAT of 1 implies identical individuals (duplicates in data), 0.5 is parent-child or siblings, 0.25 is aunt/uncle-niece/nephew. We should scrutinize anything over 0.2 as these pairs could be related. 
 
 ```{r genome_pihat, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_filter5 \
@@ -376,7 +329,8 @@ head siblings.imiss
 ```
 
 We could write code to select the individual with less missing data programmatically, but since there is only one pair, we can easily tell that individual 1251 has 1% more missing data than 1250.
-Write "1251 1251" in a text file called 'drop_this.txt' and pass it to --remove to drop this individual from our data.
+
+For the next step, write "1251 1251" in a file called 'drop_this.txt', then pass it to `--remove` to drop this individual from our data.
 
 ```{r filter6, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_filter5 \
@@ -398,12 +352,12 @@ rm sex_discrepancy.txt snp_1_38.txt \
 
 ---
 
-## Multidimensional scaling
+## 3 - Multidimensional scaling
 
-If we have resources to place our study subjects within their  'ethnic' groups (eg. 1000 genomes SNPs data for human ethnicity), then we can 'anchor' our samples with this data to find out where the samples lie in relation to these groups. MDS is used to display the distance between individuals, such that we can identify any individuals that are outliers from their groups. Because we want to do our GWAS on a homogeneous population, we would remove any samples that deviate from the group based on a selected threshold. For more details about anchoring your data, [click here](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6001694/) to see an example with human SNP data anchored by the 
+If we have resources to place our study subjects within their  'ethnic' groups (eg. 1000 genomes SNPs data for human ethnicity), then we can 'anchor' our samples with this data to find out where the samples lie in relation to these groups. MDS is used to display the distance between individuals, such that we can identify any individuals that are outliers from their groups. Because we want to do our GWAS on a homogeneous population, we would remove any samples that deviate from the group based on a selected threshold. For more details about anchoring your data, [click here](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6001694/) to see an example of MDS with human SNP data anchored by the 
 1000 genomes data. There is more information about other [plink clustering options here](https://www.cog-genomics.org/plink/1.9/strat). 
 
-Since we are dealing with Labrador retrievers, we'll just perform MDS to check for any obvious outliers. We also use the MDS components as covariates to control for population stratification in some association testing. We'll use the set of files named 'cr237_filter6.*' for MDS in this step. We'll plot the MDS in R too (see R section).
+Since we don't have data for other breeds handy, we'll perform MDS to check for any obvious outliers without anchoring. We also use the MDS components as covariates to control for population stratification in some association testing later. We'll plot the MDS for visual inspection (see appendix).
 
 First, calculate the identity-by-sequence distances for all pairs of individuals.
 
@@ -412,7 +366,6 @@ plink --dog --bfile cr237_filter6 \
   --extract indepSNP.prune.in \
   --genome --out cr237_filter6
 ```
-
 
 Now do MDS clustering of individuals based on their autosomal SNP genotypes. We pass the IBS data along with `--read-genome`. Plink's
 `--cluster` does complete linkage hierarchical clustering by default,
@@ -425,23 +378,9 @@ plink --dog --bfile cr237_filter6 \
   --out cr237_filter6
 ```
 
-The MDS results are in `cr237_filter6.mds`. You'll want to visualize these before moving on, so download the cr237_filter6.mds and .fam files and skip to the R section for MDS plotting. Check the results and return back to here afterwards. In the first two MDS components we can vaguely see two groups, but no individuals are extremely far from the cloud. 
-
-We don't *need* to, but we could exclude the couple controls that
-are around -0.1 in coefficient 2 as an example:
-
-```{r MDS_filter, engine = 'bash', eval = F, include = T}
-# Using awk to exclude them from the list
-awk '{ if ($5 >-0.07) print $1,$2 }' cr237_filter6.mds \
-  > cr237_filter6_strat
-
-# To only keep the individuals within MDS thresholds
-plink --dog --bfile cr237_filter6 \
-  --keep cr237_filter6_strat \
-  --make-bed --out cr237_filter6_strat
-```
-
-You can see that this removed those few distant dogs. However we don't really need to do this (they aren't that distant) and we don't have any other data to reference against here (eg. other dog breeds to anchor our Labs). Removing individuals also decreases our statistical power (and we'd have to redo the MDS!).
+The MDS results are in `cr237_filter6.mds`. You'll want to visualize these before moving on, so download the .mds and .fam files and skip to the appendix for MDS plotting. Check the results and return back to here afterwards. In the first two MDS components we can vaguely see two groups, but no individuals are extremely far from the cloud. 
+We don't *need* to, but we *could* exclude the couple dogs that
+are within -0.7 to -1 in component 2, for example.
 
 Finally, we want to reformat the .mds file to a plink covariate file that we'll use to control for population stratification in the association analysis. 
 
@@ -455,12 +394,12 @@ head covar_mds.txt
 
 ---
 
-## Association analyis
+## 4 - Association analysis
 
 
 Association testing for a binary trait (ACL rupture in our case) compares the allele frequencies between the case and control groups. There are many tests for many parameters, so you should definitely visit the [plink association analysis](https://www.cog-genomics.org/plink/1.9/assoc) page to learn more.
 
-### Testing with `--assoc`
+### Basic association test  
 
 We first do simple a Chi-squared test with one degree of freedom using the `--assoc` function, with `--ci 0.95` added so that we also get the 95% CI on the odds ratio (OR) for each SNP.  It's important to note that this testing method does not include correction for the MDS covariates (which is undesirable).
 
@@ -487,14 +426,15 @@ plink --bfile cr237_filter6 --dog \
 # p-values by various methods and is sorted by significance.
 head result_adjusted.assoc
 head result_adjusted.assoc.adjusted
+
 ```
 
 Note: there aren't any (!) significant results after some corrections. Baker *et al*. note that Bonferroni correction might be too stringent given that dogs have many SNPs that are inherited in haplotype blocks due to extensive linkage disequilibrium.
 
 
-### Testing with `--logisitic`
+### Logistic regression modeling   
 
-We *do* want to take the MDS covariates into account and the --assoc function doesn't do this, so we can use plink's `--logistic` function to do logistic regression with the MDS components included as covariates (passed with `--covar`). We also provide the `--hide-covar` flag to only get the results for the SNPs (not the MDS covariates).
+We *do* want to take the MDS covariates into account and the --assoc function doesn't do this, so we can use Plink's `--logistic` function to do logistic regression with the MDS components included as covariates (passed with `--covar`). We also provide the `--hide-covar` flag to only get the results for the SNPs (not the MDS covariates).
 
 ```{r logistic, engine = 'bash', eval = F, include = T}
 plink --dog --bfile cr237_filter6 \
@@ -511,7 +451,13 @@ awk '/'NA'/' result2.assoc.logistic | wc -l
 awk '!/'NA'/' result2.assoc.logistic  > result2.assoc.logistic
 ```
 
-At this stage, you'll want to check out a Manhattan plot of the association p-values - but get the permutation running first! Then you'll have some time (~30mins) on your hands to go to the R section and do the Manhattan plot.
+At this stage, you'll want to make a Manhattan plot of the association p-values - but get the permutation running first! Then you'll have some time (~30mins) on your hands to go to the R section and do the Manhattan plot.
+
+```{r, echo = F, fig.width=8, fig.height=3}
+library(tidyverse)
+read_rds("./fig_manhat_for_report.rds") +
+  labs("Genome-wide association significance for ACL rupture with logistic regression test")
+```
 
 ### Permutation testing
 
@@ -525,43 +471,49 @@ You may set the `--seed` to any large integer so that you get the same results (
 ```{r perm, engine = 'bash', eval = F, include = T}
 
 # Perform 1M perrmutations.
-plink --bfile cr237_filter6 --dog \
+Plink --bfile cr237_filter6 --dog \
   --seed 6377474 \
   --assoc --mperm 1000000 --ci 0.95 \
   --out result_perm_1M
   
 
-# Order your data, from lowest to highest p-value.
+# Order your data, from lowest to highest p-values
 sort -gk 4 result_perm_1M.assoc.mperm > sorted_subset.txt
 
 # Check results out
 head sorted_subset.txt
 ```
 
+Permutation will take a few minutes. Once it has started, it's a good time to run some of the R code included with this tutorial to explore the data we have generated already. 
 
-FYI - this will be the most computationally intensive step and will take at least tens of minutes (much longer if your dataset is large). Once it has started, it's a good time to run some of the R code included with this tutorial to explore the data we have generated already. 
+
+<!-- Reflection on your experience learning this analysis and what you think the most challenging parts -->
+<!-- were. Describe why you chose this particular analysis. Please include details on how accessible and -->
+<!-- well-documented your chosen workflow or software was, and what specific points might pose significant -->
+<!-- challenges to others learning this type of analysis. (20%) -->
 
 
----
+## 5 Discussion 
 
-## Challenge: Polygenic risk scores
+There are a number of complicated aspects in performing genome-wide association analyses. Many genetic and statistical concepts are involved and organism-specific knowledge is key. I found that setting parameters for pruning and selecting appropriate association tests was challenging. The dataset I chose for this tutorial (Baker *et al.,* 2017) had the benefit of being a nice size (n=237), though I could not reproduce their result as some data is missing from data dryad (*e.g.*. neutering). I found Plink easy to use after following the Marees tutorial. The documentation is adequate to operate the tool but the explanation is terse. I choose to perform a GWAS analysis for this work because I am interested in methods that allow us to unravel the genetic underpinnings of complex traits and diseases. Genome-wide association and quantiative trait loci both seem highly relevant as large-scale genomics work becomes more tractable, allowing personalized medicine, *etc.*, to be realized.
 
-Hurrah! You finished the entire tutorial! The next section covers plotting all the most important results in R.
 
-You're now a pro at using plink and you're ready to start exploring more GWAS methods on your own. Calculating the polygenic risk scores for the Labradors in our data is left as an exercise for the reader (*ie.* I ran out of time to work on this). 
+
 
 ----
 
 
-## Visualizing the results
+## Appendix - Visualizing the results 
 
-This section covers how to plot plink results with R. I prefer to use the `ggplot2` library over base R, so I will show you how to plot plink output this way. If you prefer base R plots, then see the [Marees GWAS tutorial](https://github.com/MareesAT/GWA_tutorial/). 
+This section covers how to parse and plot the Plink results with R in the `tidyverse` framework. The data from Plink are fairly easy to work with but have an unusual space-delimited format and the column names contain white-spaces when they are read in. The gwa_* functions here can be plot any data of the right type (*ie.* .suffix), though you may need to edit some layers if you have much more data than the Labradors example. Since the figures are ggplot2 objects, you can easily customize plot appearance to your liking with the usual ggplot2 stuff: theme_\*(), theme(), labs(), *etc*. 
 
-The data from plink are fairly easy to work with but have an usual space-delimited format and the column names have white-space when they are read in. I like the `janitor::clean_names()` function to make them all lowercase names. The functions here can be fed any data of the right type, though you may want to adjust the plot layers if your data are very different from the Labradors example. Since the figures are ggplot2 objects, you can easily customize plot appearance to your liking with the usual ggplot2 stuff: theme_\*(), theme(), labs(), *etc*. 
+I am assuming the reader has some experience with `dplyr` and `ggplot2`. Any other packages used are indicated with the `package::function` notation. Should you prefer base R plotting, then see the [Marees GWAS tutorial](https://github.com/MareesAT/GWA_tutorial/) which has code to do that. 
+
+---
 
 Install the following packages if you don't already have them (with `install.packages()`)
 
-```{r libraries, include=F, eval=T}
+```{r libraries, include=T, eval=T}
 library(tidyverse)  
 library(patchwork)    # to glue plots together
 library(GGally)       # for the MDS pairs plot
@@ -569,11 +521,11 @@ library(ggrepel)      # for labels on manhattan plot
 ```
 
 
-### QC: Missing data
+#### QC: Missing data
 
 These functions plot the distribution of the proportion of missing data for individuals and SNPs from the plink.imiss and plink.lmiss files (from QC step 'a').
 
-```{r missing_hist, fig.width=6, fig.height=3}
+```{r missing_hist, fig.width=6, fig.height=2.5}
 # plots histogram of missing data for individuals from .imiss file
 gwa_missing_indiv <- 
   function(plink_imiss){
@@ -607,17 +559,20 @@ indiv <- read_delim("./plink.imiss", delim = ' ') %>%
 snps <- read_delim("./plink.lmiss", delim = ' ') %>% 
   gwa_missing_snp() +
   theme_bw()
-
-# with patchwork:: + operator to combine plots
+# combine plots with patchwork + operator
 indiv + snps
 ```
 
 
-### QC: Sex-check
+---
+
+
+#### QC: Sex-check
 
 This will plot the F-values from the plink.sexcheck results created in QC step 'b'.
 
-```{r sex_check_hist, fig.height=3, fig.width=4.5}
+
+```{r sex_check_hist, fig.height=2.5, fig.width=4}
 
 # plots plink --sex-check results
 gwa_sexcheck <- function(plink_sexcheck, plt_title){
@@ -636,8 +591,8 @@ gwa_sexcheck <- function(plink_sexcheck, plt_title){
   theme(legend.position = 'NA')
 }
 
-# read and plot data; you can add more layers to ggplots to customize
-# using + labs(), + theme(), etc.
+# read and plot .sexcheck data; add more layers to ggplot objects
+# to customize, using + labs(), + theme(), etc.
 read_delim("./plink.sexcheck", delim = ' ') %>% 
   gwa_sexcheck() +
   theme_bw() +
@@ -647,15 +602,19 @@ read_delim("./plink.sexcheck", delim = ' ') %>%
     subtitle =  "--sex-check: input data vs SNP-imputed sexes. 
     Outliers could be labelled incorrectly in the input data"
     ) 
+
 ```
 
 
-### QC: Minor allele frequency from plink --freq
+
+
+#### QC: Minor allele frequency from plink --freq
 
 This plots the distribution of MAF from MAF_check.frq results obtained in QC step 'd'.
 
 ```{r maf_hist}
-read_delim("./MAF_check.frq", delim = ' ') %>% 
+
+maf <- read_delim("./MAF_check.frq", delim = ' ') %>% 
   janitor::clean_names() %>% 
   ggplot(aes(x = as.numeric(maf))) +
   geom_histogram() +
@@ -664,25 +623,29 @@ read_delim("./MAF_check.frq", delim = ' ') %>%
        subtitle = "Minor allele frequency distribution")
 ```
 
-### QC: Hardy-Weinberg equilibrium exact test
+#### QC: Hardy-Weinberg equilibrium exact test
 
 This plots the distribution of HWE exact test p-values from QC step 'e'.
 
 ```{r HWE_plot}
-read_delim("./plink.hwe", ' ') %>% 
+hwe <- read_delim("./plink.hwe", delim = ' ') %>% 
   janitor::clean_names() %>% 
   transmute(p = as.numeric(p)) %>% 
-  mutate(fill = if_else(p < 1e-07, '< 1e-7', 'keep')) %>% 
-  ggplot(aes(x = p, fill = fill)) +
+  ggplot(aes(x = p, fill = if_else(p < 1e-07, '< 1e-7', 'keep'))) +
   geom_histogram() +
   theme_bw() +
   labs(x = 'p-value', y = 'SNPs', fill = '',
        subtitle = "Hardy-Weinberg equilibrium test")
 ```
 
+```{r maf_hwe, fig.height=2.5, fig.width=7.5}
+maf + hwe 
+```
 
 
-### MDS Plots
+----
+
+#### MDS Plots
 
 These functions create a 2d plot of the MDS (`gwas_mds1()`), and a multipanel plot of the first 5 components (`gwas_mds2`). These require joined the .mds and .fam data as you will see below.
 
@@ -692,7 +655,7 @@ gwas_mds1 <- function(mds_data){
   dogs %>% 
     ggplot(aes(c1, c2, color = phenotype, shape = sex)) +
     geom_point() +
-    coord_equal()
+    coord_equal() +
     theme_minimal() +
     theme(panel.grid = element_blank(), 
           panel.border = element_rect(color = 'black', 
@@ -700,20 +663,6 @@ gwas_mds1 <- function(mds_data){
     labs(x = 'MDS1', y = 'MDS2', 
          subtitle = paste("Metric multidimensional scaling of",
                           nrow(dogs),"dog genotypes"))
-}
-# Plot multiple MDS components in pairs
-gwas_mds2 <- function(mds_data){
-  ggpairs(
-    dogs, columns = (4:8),
-    mapping = aes(color = phenotype),
-    diag = list(continuous = wrap("densityDiag", alpha=0.5, size=0)),
-    upper = list(continuous = wrap("density", alpha = 0.6),
-                 combo = "box_no_facet"),
-    lower = list(continuous = wrap("points", alpha = 0.6, size=0.4), 
-                 combo = wrap("dot", alpha = 0.4, size=0.2)),
-    legend = c(5,5)) +
-    theme_classic() +
-    theme(legend.position = "bottom")
 }
 ```
 
@@ -742,27 +691,20 @@ dogs <-
   mutate_if(is_character, as_factor) %>% 
   # combine .fam and .mds data by id
   right_join(mds, by = 'id')
+
 ```
 
-In the first two MDS components we can vaguely see two groups,
-but no individuals are extremely far from the cloud. 
+In the first two MDS components we can make out two groups with one larger the the other, but no individuals are extremely far from the cloud. The grouping suggests that maybe there is some population structure in the dataset that we aren't aware of. Cases and controls are mixed together, there is no pattern.
 
 ```{r make_mds1}
-# a 2d MDS plot
-fig1_gwas_mds1 <- gwas_mds1(dogs) + coord_equal()
-fig1_gwas_mds1
-```
-
-You may want to check for outliers in multiple MDS components.
-
-```{r make_mds2, fig.height=5, fig.width=6}
-# multiple pairwise
-fig1_gwas_mds2 <- gwas_mds2(dogs)
-fig1_gwas_mds2
+gwas_mds1(dogs)
 ```
 
 
-### Manhattan plot
+----
+
+
+#### Manhattan plot
 
 /home/jmoggrid/scratch/lab_test_run/result2.assoc.logistic
 
@@ -838,10 +780,10 @@ logistic <-
 
 Make the Manhattan plot of association p-values
 
-```{r, fig.height=3.5, fig.width=7}
+```{r, fig.height=3.5, fig.width=8}
 # create a vector of snps to we want to highlight in the manhattan plot (eg. based on p-value)
 snpsOfInterest <- logistic %>% 
-  filter(p < as.numeric('1e-6')) %>%
+  filter(p < as.numeric('1e-5')) %>%
   pull(snp)
          
 # Make the Manhattan plot using the function we created above
@@ -854,7 +796,7 @@ gwas_manhattan_plot(logistic, label_if = 4, snpsOfInterest) +
 ```
 
 
-We can also get a table of the most significant associations:
+We can also get a table of the most significant associations like so:
 
 ```{r}
 # show the most significant hits
@@ -873,9 +815,10 @@ logistic %>%
 
 
 
-### Quantile-quantile plot
+#### Quantile-quantile plot
 
-This section creates the QQ plot for your association p-values.
+This section creates the QQ plot for the logistic regression p-values in the Manhattan above. This is showing us the quantiles of the distribution of observed p-values against the quantiles of the distribution expected by chance alone. Since the fit is very close to the expected, this indicates that we don't have any association signal in our data. This is not surprising given that this dataset is very small, but it is a bit sad since we did try our best. If there were strong associations in the data, we would see the most significant observed p-values shoot upwards from the diagonal line. If shape along the diagonal line has unusual curvature in the low-significance quartiles, then there is something very wrong with the analysis (eg. population stratification).
+
 This code adapted from [a blog post by Daniel Roelfs](https://danielroelfs.com/blog/how-i-make-qq-plots-using-ggplot/).
 
 ```{r QQplot}
@@ -915,10 +858,21 @@ gwas_qq_plot <- function(assoc_data){
 }
 ```
 
-Plot the q-q plot for the logistic regression p-values in the Manhattan above. This is showing us the distribution of our p-values against the distribution expected by chance alone. Since the fit is very close to the expected, this indicates that we don't have much in the way of strong associations.
 
-```{r fig.height=3.5, fig.width=3.5}
+```{r fig.height=3.5}
 gwas_qq_plot(logistic) +
   labs(title =  "Q-Q plot for logistic regression")
+```
+
+
+---
+
+
+
+## Comparing with the permutation estimates
+
+```{r}
+
+
 ```
 
