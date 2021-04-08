@@ -347,7 +347,7 @@ plink --bfile cr237_dryad_8 --dog --read-genome cr237_dryad_8.genome \
 # download these two files into your local project directory:
 # cr237_dryad_8.mds
 # cr237_dryad_8.fam
-# plot the MDS in Rstudio by running: source("./R/MDS_presentation.R")
+
 
 # In the first two MDS components we can vaguely see two groups,
 # but no individuals are extremely far from the cloud.

@@ -408,7 +408,7 @@ read_rds("./fig_manhat_for_report.rds") +
 
 ### Permutation testing
 
-This involves randomly permuting the phenotypes to get estimates of  significance empirically and as such it is computationally intensive but has some desirable properties for test. This is a general procedure and various tests can be applied in this framework; [go here learn more](https://zzz.bwh.harvard.edu/plink/perm.shtml) about the different uses of plink --perm. For more background, see this [article by Che *et al.*](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4070098/).
+This involves randomly permuting the phenotypes to get estimates of  significance empirically and as such it is computationally intensive. This is a general procedure and various tests can be applied in this framework; [go here learn more](https://zzz.bwh.harvard.edu/plink/perm.shtml) about the different uses of plink --perm. For more background, see this [article by Che *et al.*](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4070098/).
 
 In the context of our dataset (small size, possibly contains relatives since we did not filter based on pi_hat), permutation is an attractive option to avoid some of the assumptions of ANOVA testing. Here we do 1 million permutations of the genotypes with `--assoc` and the `--mperm` option plus our number of repeats. This will invoke the max(T) algorithm rather than the adaptive one. You may set the `--seed` to any large integer so that you get the same results (there is randomness otherwise).
 
@@ -427,7 +427,7 @@ head sorted_subset.txt
 Permutation will take a few minutes. None of the adjusted p-values are significant (spoiler).
 
 
-## 5 Discussion 
+# Discussion 
 
 There are a number of complicated aspects in performing genome-wide association analyses. Many genetic and statistical concepts are involved and organism-specific knowledge is key. I found that setting parameters for pruning and selecting appropriate association tests was challenging. The dataset I chose for this tutorial (Baker *et al.,* 2017) had the benefit of being a nice size (n=237), though I could not reproduce their result as some data is missing from data dryad (*e.g.*. neutering). I found Plink easy to use after following the [Marees GWAS tutorial](https://github.com/MareesAT/GWA_tutorial/). The documentation is adequate to operate the tool but the explanation is terse, as familiarity with GWAS and statistical tests is assumed. The tutorial I followed helped somewhat but used simulated human data. As such I had to adapt their work-flow for canine data.
 
@@ -437,7 +437,7 @@ I choose to perform a GWAS analysis for this work because I am interested in met
 ----
 
 
-## Appendix - Visualizing the results 
+# Appendix - Visualizing the results 
 
 This section covers how to parse and plot the Plink results with R in the `tidyverse` framework. The data from Plink are fairly easy to work with but have an unusual space-delimited format and the column names contain white-spaces when they are read in. The `gwa_*` functions here can be plot any data of the right type (*ie.* .suffix), though you may need to edit some layers if you have much more data than the Labradors example. Since the figures are ggplot2 objects, you can easily customize plot appearance to your liking with the usual ggplot2 stuff: theme_\*(), theme(), labs(), *etc*. 
 
@@ -449,7 +449,6 @@ Install the following packages if you don't already have them (with `install.pac
 ```{r libraries, include=T, eval=T}
 library(tidyverse)  
 library(patchwork)    # to glue plots together
-library(GGally)       # for the MDS pairs plot
 library(ggrepel)      # for labels on manhattan plot
 ```
 
@@ -718,7 +717,7 @@ snpsOfInterest <- logistic %>%
   pull(snp)
          
 # Make the Manhattan plot using the function we created above
-# the 'label_if' parameter sets the threshold at which snps will have text labels
+# the 'label_if' parameter sets the threshold -logP above which snps will get text labels
 gwas_manhattan_plot(logistic, label_if = 4, snpsOfInterest) +
   # to adjust appearance of y-axis (ignore the replacement warning)
   scale_y_continuous(expand = c(0.05, 0.05), limits = c(0, 6),
